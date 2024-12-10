@@ -183,6 +183,7 @@ pub enum NumericOP {
     Sub,
     Div,
     Mul,
+    Min,
 }
 
 impl NumericOP {

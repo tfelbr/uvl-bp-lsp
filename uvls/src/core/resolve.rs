@@ -4,6 +4,8 @@
 //! This also containes functions for attribute aggregates and path-symbol binding and type checking
 //! - resolve_file: Type resolving for an AstDocument
 //! - resolve_*: nameresultion under various conditions.
+use core::borrow;
+
 use ropey::Rope;
 use ustr::Ustr;
 
@@ -565,7 +567,7 @@ pub fn estimate_types(
                 .slice(node.child_by_field_name("op").unwrap().byte_range())
                 .into();
             let req = match &*op {
-                "+" | "-" | "/" | "*" | ">" | "<" => Type::Real.into(),
+                "+" | "-" | "/" | "*" | ">" | "<" | "^" => Type::Real.into(),
                 "&" | "|" | "<=>" | "=>" => Type::Bool.into(),
                 _ => Type::String | Type::Real | Type::Bool,
             };

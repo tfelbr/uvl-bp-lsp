@@ -7,6 +7,7 @@ const PREC = {
     eq: 4,
     mul: 5,
     add: 5,
+    min: 7,
 
 
 
@@ -141,6 +142,7 @@ module.exports = grammar({
             op2("-", PREC.add, $),
             op2("*", PREC.mul, $),
             op2("/", PREC.mul, $),
+            op2("^", PREC.min, $),
         ),
         nested_expr: $ =>
             seq('(', $._expr, ')'),

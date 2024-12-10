@@ -808,6 +808,11 @@ fn translate_expr(decl: &ast::ExprDecl, m: InstanceID, builder: &mut SMTBuilder)
                     ast::NumericOP::Sub => Expr::Sub(vec![lhs, rhs]),
                     ast::NumericOP::Mul => Expr::Mul(vec![lhs, rhs]),
                     ast::NumericOP::Div => Expr::Div(vec![lhs, rhs]),
+                    ast::NumericOP::Min => Expr::Ite(
+                        Expr::Greater(vec![lhs.clone(), rhs.clone()]).into(),
+                        rhs.into(),
+                        lhs.into(),
+                    ),
                 };
                 (expr, Type::Real)
             }

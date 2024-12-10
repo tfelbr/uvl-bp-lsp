@@ -552,6 +552,7 @@ fn opt_numeric_op(node: Node) -> Option<NumericOP> {
         "-" => Some(NumericOP::Sub),
         "*" => Some(NumericOP::Mul),
         "/" => Some(NumericOP::Div),
+        "^" => Some(NumericOP::Min),
         _ => None,
     }
 }
