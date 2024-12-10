@@ -18,7 +18,6 @@ pub use cache::*;
 pub use check::*;
 pub use config::*;
 pub use document::*;
-pub use log::info;
 pub use module::*;
 pub use parse::*;
 pub use pipeline::*;
