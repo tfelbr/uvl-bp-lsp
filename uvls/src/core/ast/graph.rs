@@ -347,10 +347,11 @@ fn opt_numeric_op(node: Node) -> Option<NumericOP> {
         _ => None,
     }
 }
-fn opt_aggreate_op(state: &mut VisitorGraph) -> Option<AggregateOP> {
+fn opt_aggregate_op(state: &mut VisitorGraph) -> Option<AggregateOP> {
     match state.slice(state.child_by_name("op")?).borrow() {
         "sum" => Some(AggregateOP::Sum),
         "avg" => Some(AggregateOP::Avg),
+        "requested" => Some(AggregateOP::Requested),
         _ => None,
     }
 }
@@ -383,7 +384,7 @@ fn opt_function_args(state: &mut VisitorGraph) -> Option<Vec<Path>> {
 }
 
 fn opt_aggregate(state: &mut VisitorGraph) -> Option<Expr> {
-    let op = opt_aggreate_op(state)?;
+    let op = opt_aggregate_op(state)?;
     let args = opt_function_args(state)?;
     match args.len() {
         0 => None,

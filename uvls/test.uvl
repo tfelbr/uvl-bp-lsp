@@ -1,0 +1,10 @@
+features
+    Root
+        optional
+            Thread1 {Event1 {type 'BEvent', requested 1}}
+            Thread2 {Event2 {type 'BEvent', requested 1}}
+
+constraints
+    requested(Event1.requested) => requested(Event2.requested)
+    // requested(Thread1.Event1.requested) == 0
+    // requested(Event1.a) => requested(Event2.aa)

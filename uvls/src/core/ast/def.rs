@@ -208,6 +208,7 @@ pub enum LogicOP {
 pub enum AggregateOP {
     Avg,
     Sum,
+    Requested,
 }
 
 #[derive(Clone, Debug)]
@@ -238,6 +239,7 @@ pub enum Constraint {
     },
     Ref(Symbol),
     Not(Box<ConstraintDecl>),
+    Expression(Box<ExprDecl>),
 }
 
 #[derive(Clone, Debug)]

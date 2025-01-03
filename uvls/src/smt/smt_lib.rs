@@ -779,6 +779,7 @@ fn translate_constraint(
                 }
             }
         }
+        ast::Constraint::Expression(expr) => translate_expr(expr, m, builder).0,
     }
 }
 /// Translates expr into Expressions which can be converted to Z3 Statements
@@ -834,15 +835,17 @@ fn translate_expr(decl: &ast::ExprDecl, m: InstanceID, builder: &mut SMTBuilder)
             if all_attributes.is_empty() {
                 (Expr::Real(0.0), Type::Real)
             } else {
-                (
-                    match op {
-                        ast::AggregateOP::Sum => Expr::Add(all_attributes),
-                        ast::AggregateOP::Avg => {
-                            Expr::Div(vec![Expr::Add(all_attributes), Expr::Add(count_features)])
-                        }
-                    },
-                    Type::Real,
-                )
+                match op {
+                    ast::AggregateOP::Sum => (Expr::Add(all_attributes), Type::Real),
+                    ast::AggregateOP::Avg => (
+                        Expr::Div(vec![Expr::Add(all_attributes), Expr::Add(count_features)]),
+                        Type::Real,
+                    ),
+                    ast::AggregateOP::Requested => (
+                        Expr::Greater(vec![Expr::Add(all_attributes), Expr::Real(0.0)]),
+                        Type::Bool,
+                    ),
+                }
             }
         }
         ast::Expr::Integer { op, n } => (

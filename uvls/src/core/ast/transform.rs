@@ -559,6 +559,7 @@ fn opt_aggreate_op(state: &mut VisitorState) -> Option<AggregateOP> {
     match state.slice(state.child_by_name("op")?).borrow() {
         "sum" => Some(AggregateOP::Sum),
         "avg" => Some(AggregateOP::Avg),
+        "requested" => Some(AggregateOP::Requested),
         _ => {
             state.push_error(30, "unknown aggregate function");
             None
@@ -934,6 +935,23 @@ fn opt_constraint(state: &mut VisitorState) -> Option<ConstraintDecl> {
                 }
             })
         }
+        "function" => match state.slice(state.child_by_name("op")?).borrow() {
+            "requested" => {
+                check_langlvls(
+                    state,
+                    LanguageLevel::Arithmetic(vec![LanguageLevelArithmetic::Aggregate]),
+                );
+                let aggregate_op = opt_aggregate(state)?;
+                Some(Constraint::Expression(Box::new(ExprDecl {
+                    content: aggregate_op,
+                    span: span.clone(),
+                })))
+            }
+            _ => {
+                state.push_error(40, "unknown constraint expression");
+                None
+            }
+        },
         _ => {
             state.push_error(40, "expected a constraint found a expression");
             None
