@@ -570,6 +570,8 @@ fn opt_aggregate_op(state: &mut VisitorState) -> Option<AggregateOP> {
 fn opt_bp_event_op(state: &mut VisitorState) -> Option<EventOP> {
     match state.slice(state.child_by_name("op")?).borrow() {
         "requested" => Some(EventOP::Requested),
+        "blocked" => Some(EventOP::Blocked),
+        "waited_for" => Some(EventOP::WaitedFor),
         _ => {
             state.push_error(30, "unknown aggregate function");
             None

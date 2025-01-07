@@ -357,6 +357,8 @@ fn opt_aggregate_op(state: &mut VisitorGraph) -> Option<AggregateOP> {
 fn opt_bp_event_op(state: &mut VisitorGraph) -> Option<EventOP> {
     match state.slice(state.child_by_name("op")?).borrow() {
         "requested" => Some(EventOP::Requested),
+        "blocked" => Some(EventOP::Blocked),
+        "waited_for" => Some(EventOP::WaitedFor),
         _ => None,
     }
 }

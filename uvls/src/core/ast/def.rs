@@ -213,6 +213,8 @@ pub enum AggregateOP {
 #[derive(Clone, Debug)]
 pub enum EventOP {
     Requested,
+    Blocked,
+    WaitedFor,
 }
 
 #[derive(Clone, Debug)]

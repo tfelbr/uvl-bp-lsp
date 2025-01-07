@@ -892,6 +892,14 @@ fn translate_bp_constraint(decl: &ast::BPExprDecl, m: InstanceID, builder: &mut 
                     if all_requested.is_empty() { Expr::Bool(false) }
                     else { Expr::Greater(vec![Expr::Add(all_requested), Expr::Real(0.0)]) }
                 },
+                ast::EventOP::Blocked => {
+                    if all_blocked.is_empty() { Expr::Bool(false) }
+                    else { Expr::Greater(vec![Expr::Add(all_blocked), Expr::Real(0.0)]) }
+                },
+                ast::EventOP::WaitedFor => {
+                    if all_waited_for.is_empty() { Expr::Bool(false) }
+                    else { Expr::Greater(vec![Expr::Add(all_waited_for), Expr::Real(0.0)]) }
+                },
             }
         }
     }

@@ -996,6 +996,8 @@ fn add_function_keywords(query: &str, top: &mut TopN<CompletionOpt>, w: f32) {
             "floor($1) ".into(),
             "ceil($1) ".into(),
             "requested($1) ".into(),
+            "blocked($1) ".into(),
+            "waited_for($1) ".into(),
         ],
     );
 }

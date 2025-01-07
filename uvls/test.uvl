@@ -3,7 +3,8 @@ features
         optional
             Thread1 {Event1 {type 'BEvent', requested 1}}
             Thread2 {Event1 {type 'BEvent', blocked 1}}
-            Thread3 {Event2 {type 'BEvent', requested 1}}
+            Thread3 {Event2 {type 'BEvent', waited_for 1}}
 
 constraints
-    requested(Event1) => requested(Event2)
+    requested(Event1) => !blocked(Event1)
+    waited_for(Event2)
