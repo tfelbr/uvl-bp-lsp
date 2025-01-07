@@ -10,8 +10,10 @@ use log::info;
 use parse::*;
 use ropey::Rope;
 use semantic::FileID;
+use ustr::Ustr;
 use std::borrow::{Borrow, Cow};
 use std::collections::HashSet;
+use std::collections::HashMap;
 use tokio::time::Instant;
 use tower_lsp::lsp_types::{DiagnosticSeverity, Url};
 use tree_sitter::{Node, Tree, TreeCursor};
@@ -555,7 +557,7 @@ fn opt_numeric_op(node: Node) -> Option<NumericOP> {
         _ => None,
     }
 }
-fn opt_aggreate_op(state: &mut VisitorState) -> Option<AggregateOP> {
+fn opt_aggregate_op(state: &mut VisitorState) -> Option<AggregateOP> {
     match state.slice(state.child_by_name("op")?).borrow() {
         "sum" => Some(AggregateOP::Sum),
         "avg" => Some(AggregateOP::Avg),
@@ -703,7 +705,7 @@ fn check_langlvls(state: &mut VisitorState, searched_lang_lvl: LanguageLevel) {
 }
 
 fn opt_aggregate(state: &mut VisitorState) -> Option<Expr> {
-    let op = opt_aggreate_op(state)?;
+    let op = opt_aggregate_op(state)?;
     if state.child_by_name("tail").is_some() {
         state.push_error(10, "tailing comma not allowed");
     }
@@ -746,6 +748,68 @@ fn opt_aggregate(state: &mut VisitorState) -> Option<Expr> {
             op,
             query: args[1].clone(),
             context: Some(state.add_ref_direct(args[0].clone())),
+        }),
+        _ => {
+            state.push_error(30, "too many arguments");
+            None
+        }
+    }
+}
+fn opt_bp_event(state: &mut VisitorState) -> Option<Expr> {
+    let op = opt_aggregate_op(state)?;
+    if state.child_by_name("tail").is_some() {
+        state.push_error(10, "tailing comma not allowed");
+    }
+    let args = opt_function_args(state)?;
+    let argnames_by_index: HashMap<usize, ustr::Ustr> = 
+        HashMap::from_iter(args.iter().flat_map(|p| p.names.clone()).into_iter().enumerate());
+    let mut all_attributes_iter = 
+        state
+            .ast
+            .all_attributes()
+            .filter_map(|sym| {
+                if let Symbol::Attribute(aidx) = sym {
+                    Some(state.ast.get_attribute(aidx))
+                } else {
+                    None
+                }
+            });
+    
+    let args_last_index = argnames_by_index.keys().max();
+    let last_arg_attributes = {
+        all_attributes_iter
+            .find(|attr| {
+                argnames_by_index[&args_last_index.unwrap()] == attr.unwrap().name.name
+                    && matches!(&attr.unwrap().value.value, Value::Attributes)
+            })
+            .is_some()
+    };
+    let mut arg_type_event = || -> bool {
+        all_attributes_iter
+            .find(|attr| {
+                Ustr::from("type") == attr.unwrap().name.name
+                    && matches!(&attr.unwrap().value.value, Value::String(type_name) if {
+                        *type_name == String::from("BEvent")
+                    })
+            })
+            .is_some()
+    };
+    if !last_arg_attributes {
+        state.push_error(30, "invalid argument, expected a behavioral event");
+    }
+    else if !arg_type_event() {
+        state.push_error(30, "'BEvent' type annotation missing for argument");
+    }
+
+    match args.len() {
+        0 => {
+            state.push_error(30, "missing event name");
+            None
+        }
+        1 => Some(Expr::Aggregate {
+            op,
+            query: args[0].clone(),
+            context: None,
         }),
         _ => {
             state.push_error(30, "too many arguments");
@@ -936,19 +1000,22 @@ fn opt_constraint(state: &mut VisitorState) -> Option<ConstraintDecl> {
             })
         }
         "function" => match state.slice(state.child_by_name("op")?).borrow() {
-            "requested" => {
+            "requested" | "blocked" | "waited_for" => {
                 check_langlvls(
                     state,
                     LanguageLevel::Arithmetic(vec![LanguageLevelArithmetic::Aggregate]),
                 );
-                let aggregate_op = opt_aggregate(state)?;
+                let aggregate_op = opt_bp_event(state)?;
                 Some(Constraint::Expression(Box::new(ExprDecl {
                     content: aggregate_op,
                     span: span.clone(),
                 })))
             }
             _ => {
-                state.push_error(40, "unknown constraint expression");
+                state.push_error(
+                    40,
+                    "expected a constraint, found a non-constraint expression",
+                );
                 None
             }
         },
