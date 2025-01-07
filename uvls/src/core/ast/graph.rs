@@ -351,7 +351,12 @@ fn opt_aggregate_op(state: &mut VisitorGraph) -> Option<AggregateOP> {
     match state.slice(state.child_by_name("op")?).borrow() {
         "sum" => Some(AggregateOP::Sum),
         "avg" => Some(AggregateOP::Avg),
-        "requested" => Some(AggregateOP::Requested),
+        _ => None,
+    }
+}
+fn opt_bp_event_op(state: &mut VisitorGraph) -> Option<EventOP> {
+    match state.slice(state.child_by_name("op")?).borrow() {
+        "requested" => Some(EventOP::Requested),
         _ => None,
     }
 }
@@ -382,7 +387,6 @@ fn opt_function_args(state: &mut VisitorGraph) -> Option<Vec<Path>> {
         Some(args)
     })
 }
-
 fn opt_aggregate(state: &mut VisitorGraph) -> Option<Expr> {
     let op = opt_aggregate_op(state)?;
     let args = opt_function_args(state)?;
@@ -396,6 +400,19 @@ fn opt_aggregate(state: &mut VisitorGraph) -> Option<Expr> {
         2 => Some(Expr::Aggregate {
             op,
             query: args[1].clone(),
+            context: None,
+        }),
+        _ => None,
+    }
+}
+fn opt_bp_event(state: &mut VisitorGraph) -> Option<BPExpr> {
+    let op = opt_bp_event_op(state)?;
+    let args = opt_function_args(state)?;
+    match args.len() {
+        0 => None,
+        1 => Some(BPExpr::EventAggregate {
+            op,
+            query: args[0].clone(),
             context: None,
         }),
         _ => None,

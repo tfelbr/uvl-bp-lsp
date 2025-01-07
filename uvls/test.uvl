@@ -6,4 +6,4 @@ features
             Thread3 {Event2 {type 'BEvent', requested 1}}
 
 constraints
-    requested(Event2) 
+    requested(Event1) => requested(Event2)

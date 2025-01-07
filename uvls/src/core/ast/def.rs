@@ -208,6 +208,10 @@ pub enum LogicOP {
 pub enum AggregateOP {
     Avg,
     Sum,
+}
+
+#[derive(Clone, Debug)]
+pub enum EventOP {
     Requested,
 }
 
@@ -239,7 +243,7 @@ pub enum Constraint {
     },
     Ref(Symbol),
     Not(Box<ConstraintDecl>),
-    Expression(Box<ExprDecl>),
+    BPExpression(Box<BPExprDecl>),
 }
 
 #[derive(Clone, Debug)]
@@ -272,6 +276,19 @@ pub enum Expr {
 #[derive(Clone, Debug)]
 pub struct ExprDecl {
     pub content: Expr,
+    pub span: Span,
+}
+#[derive(Clone, Debug)]
+pub enum BPExpr {
+    EventAggregate {
+        op: EventOP,
+        context: Option<Symbol>,
+        query: Path,
+    },
+}
+#[derive(Clone, Debug)]
+pub struct BPExprDecl {
+    pub content: BPExpr,
     pub span: Span,
 }
 /// A symbol represents an entity in some uvl document

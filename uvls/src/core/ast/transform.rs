@@ -10,13 +10,13 @@ use log::info;
 use parse::*;
 use ropey::Rope;
 use semantic::FileID;
-use ustr::Ustr;
 use std::borrow::{Borrow, Cow};
-use std::collections::HashSet;
 use std::collections::HashMap;
+use std::collections::HashSet;
 use tokio::time::Instant;
 use tower_lsp::lsp_types::{DiagnosticSeverity, Url};
 use tree_sitter::{Node, Tree, TreeCursor};
+use ustr::Ustr;
 use util::node_range;
 
 #[derive(Clone)]
@@ -561,7 +561,15 @@ fn opt_aggregate_op(state: &mut VisitorState) -> Option<AggregateOP> {
     match state.slice(state.child_by_name("op")?).borrow() {
         "sum" => Some(AggregateOP::Sum),
         "avg" => Some(AggregateOP::Avg),
-        "requested" => Some(AggregateOP::Requested),
+        _ => {
+            state.push_error(30, "unknown aggregate function");
+            None
+        }
+    }
+}
+fn opt_bp_event_op(state: &mut VisitorState) -> Option<EventOP> {
+    match state.slice(state.child_by_name("op")?).borrow() {
+        "requested" => Some(EventOP::Requested),
         _ => {
             state.push_error(30, "unknown aggregate function");
             None
@@ -755,26 +763,26 @@ fn opt_aggregate(state: &mut VisitorState) -> Option<Expr> {
         }
     }
 }
-fn opt_bp_event(state: &mut VisitorState) -> Option<Expr> {
-    let op = opt_aggregate_op(state)?;
+fn opt_bp_event(state: &mut VisitorState) -> Option<BPExpr> {
+    let op = opt_bp_event_op(state)?;
     if state.child_by_name("tail").is_some() {
         state.push_error(10, "tailing comma not allowed");
     }
     let args = opt_function_args(state)?;
-    let argnames_by_index: HashMap<usize, ustr::Ustr> = 
-        HashMap::from_iter(args.iter().flat_map(|p| p.names.clone()).into_iter().enumerate());
-    let mut all_attributes_iter = 
-        state
-            .ast
-            .all_attributes()
-            .filter_map(|sym| {
-                if let Symbol::Attribute(aidx) = sym {
-                    Some(state.ast.get_attribute(aidx))
-                } else {
-                    None
-                }
-            });
-    
+    let argnames_by_index: HashMap<usize, ustr::Ustr> = HashMap::from_iter(
+        args.iter()
+            .flat_map(|p| p.names.clone())
+            .into_iter()
+            .enumerate(),
+    );
+    let mut all_attributes_iter = state.ast.all_attributes().filter_map(|sym| {
+        if let Symbol::Attribute(aidx) = sym {
+            Some(state.ast.get_attribute(aidx))
+        } else {
+            None
+        }
+    });
+
     let args_last_index = argnames_by_index.keys().max();
     let last_arg_attributes = {
         all_attributes_iter
@@ -796,8 +804,7 @@ fn opt_bp_event(state: &mut VisitorState) -> Option<Expr> {
     };
     if !last_arg_attributes {
         state.push_error(30, "invalid argument, expected a behavioral event");
-    }
-    else if !arg_type_event() {
+    } else if !arg_type_event() {
         state.push_error(30, "'BEvent' type annotation missing for argument");
     }
 
@@ -806,7 +813,7 @@ fn opt_bp_event(state: &mut VisitorState) -> Option<Expr> {
             state.push_error(30, "missing event name");
             None
         }
-        1 => Some(Expr::Aggregate {
+        1 => Some(BPExpr::EventAggregate {
             op,
             query: args[0].clone(),
             context: None,
@@ -1005,9 +1012,9 @@ fn opt_constraint(state: &mut VisitorState) -> Option<ConstraintDecl> {
                     state,
                     LanguageLevel::Arithmetic(vec![LanguageLevelArithmetic::Aggregate]),
                 );
-                let aggregate_op = opt_bp_event(state)?;
-                Some(Constraint::Expression(Box::new(ExprDecl {
-                    content: aggregate_op,
+                let bp_expr = opt_bp_event(state)?;
+                Some(Constraint::BPExpression(Box::new(BPExprDecl {
+                    content: bp_expr,
                     span: span.clone(),
                 })))
             }
