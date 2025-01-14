@@ -777,37 +777,51 @@ fn opt_bp_event(state: &mut VisitorState) -> Option<BPExpr> {
             .into_iter()
             .enumerate(),
     );
-    let mut all_attributes_iter = state.ast.all_attributes().filter_map(|sym| {
-        if let Symbol::Attribute(aidx) = sym {
-            Some(state.ast.get_attribute(aidx))
-        } else {
-            None
-        }
-    });
-
     let args_last_index = argnames_by_index.keys().max();
-    let last_arg_attributes = {
-        all_attributes_iter
-            .find(|attr| {
-                argnames_by_index[&args_last_index.unwrap()] == attr.unwrap().name.name
-                    && matches!(&attr.unwrap().value.value, Value::Attributes)
-            })
-            .is_some()
+    let check_arguments = || -> (bool, bool) {
+        let all_attribute_indices = state.ast.all_attributes().filter_map(|sym| {
+            if let Symbol::Attribute(aidx) = sym {
+                Some(aidx)
+            } else {
+                None
+            }
+        });
+        let check_for_type_annotation = |aidx: usize| -> bool {
+            state.ast.children(Symbol::Attribute(aidx)).find(|sym| {
+                if let Symbol::Attribute(aidx) = sym {
+                    let attr = state.ast.get_attribute(*aidx).unwrap();
+                    attr.name.name == "type"
+                        && matches!(&attr.value.value, Value::String(type_name) if {
+                            *type_name == String::from("BEvent")
+                        })
+                } else {
+                    false
+                }
+            }).is_some()
+        };
+        let mut events_found = 0;
+        let mut correct_type_annotation = 0;
+        let mut wrong_type = 0;
+        for aidx in all_attribute_indices {
+            let attr = state.ast.get_attribute(aidx).unwrap();
+            if attr.name.name == argnames_by_index[&args_last_index.unwrap()] {
+                events_found += 1;
+                if matches!(attr.value.value, Value::Attributes) {
+                    correct_type_annotation += check_for_type_annotation(aidx) as i32;
+                } else {
+                    wrong_type += 1;
+                }
+            }
+        }
+
+        (wrong_type == 0, correct_type_annotation == events_found)
     };
-    let mut arg_type_event = || -> bool {
-        all_attributes_iter
-            .find(|attr| {
-                Ustr::from("type") == attr.unwrap().name.name
-                    && matches!(&attr.unwrap().value.value, Value::String(type_name) if {
-                        *type_name == String::from("BEvent")
-                    })
-            })
-            .is_some()
-    };
+
+    let (last_arg_attributes, correct_type_annotation) = check_arguments();
     if !last_arg_attributes {
         state.push_error(30, "invalid argument, expected a behavioral event");
-    } else if !arg_type_event() {
-        state.push_error(30, "'BEvent' type annotation missing for argument");
+    } else if !correct_type_annotation {
+        state.push_error(30, "'BEvent' type annotation may be missing for argument");
     }
 
     match args.len() {
