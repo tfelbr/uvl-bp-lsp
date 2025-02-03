@@ -1,0 +1,22 @@
+features
+    Watertank {temp 50, level 1, target_temp 80, target_level 50}
+        optional
+            AddHot 
+            AddCold 
+            RemoveWater 
+            Finished 
+
+constraints
+    Watertank.level > 0
+    Watertank.level < 100
+    Watertank.temp > 0
+    Watertank.temp < 100
+    Watertank.temp < Watertank.target_temp => !AddCold
+    Watertank.temp > Watertank.target_temp => !AddHot
+    Watertank.level > Watertank.target_level => !RemoveWater
+    (Watertank.temp == Watertank.target_temp & Watertank.level == Watertank.target_level) => Finished
+    RemoveWater => !AddHot
+    RemoveWater => !AddCold
+    Finished => !AddHot
+    Finished => !AddCold
+    Finished => !RemoveWater

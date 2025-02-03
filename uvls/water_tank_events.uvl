@@ -1,0 +1,27 @@
+features
+    Watertank {temp 50, level 1, target_temp 80, target_level 50}
+        optional
+            AddHot {HOT {type 'BEvent', requested 1}}
+            AddCold {COLD {type 'BEvent', requested 1}}
+            RemoveWater {DRAIN {type 'BEvent', requested 1}}
+            Finished {FINISHED {type 'BEvent', requested 1}}
+        [1..3]
+            ControlHot {HOT {type 'BEvent', blocked 1}}
+            ControlCold {COLD {type 'BEvent', blocked 1}}
+            ControlDrain {DRAIN {type 'BEvent', blocked 1}}
+
+constraints
+    Watertank.level > 0
+    Watertank.level < 100
+    Watertank.temp > 0
+    Watertank.temp < 100
+    Watertank.temp < Watertank.target_temp => (blocked(COLD) & !blocked(HOT))
+    Watertank.temp > Watertank.target_temp => (blocked(HOT) & !blocked(COLD))
+    Watertank.level < Watertank.target_level => blocked(DRAIN)
+    Watertank.level > Watertank.target_level => (requested(DRAIN) & !blocked(DRAIN))
+    (Watertank.temp == Watertank.target_temp & Watertank.level == Watertank.target_level) => requested(FINISHED)
+    requested(DRAIN) => !requested(HOT)
+    requested(DRAIN) => !requested(COLD)
+    requested(FINISHED) => !requested(HOT)
+    requested(FINISHED) => !requested(COLD)
+    requested(FINISHED) => !requested(DRAIN)   
