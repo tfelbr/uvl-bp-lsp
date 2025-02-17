@@ -4,6 +4,9 @@ features
             Thread1 {Event1 {type 'BEvent', requested 1}}
             Thread2 {Event1 {type 'BEvent', blocked 1}}
             Thread3 {Event2 {type 'BEvent', waited_for 1}}
+        mandatory
+            Env {type 'Env', cpu 0, foo 0}
+            EnvPath {type 'EnvPath', cpu '/var/proc/cpu', foo '/var/proc/foo'}
 
 constraints
     requested(Event1) => !blocked(Event1)
