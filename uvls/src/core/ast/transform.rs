@@ -16,7 +16,6 @@ use std::collections::HashSet;
 use tokio::time::Instant;
 use tower_lsp::lsp_types::{DiagnosticSeverity, Url};
 use tree_sitter::{Node, Tree, TreeCursor};
-use ustr::Ustr;
 use util::node_range;
 
 #[derive(Clone)]
