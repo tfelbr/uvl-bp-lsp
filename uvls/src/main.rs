@@ -49,6 +49,7 @@ use tokio::{join, spawn};
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
+use ustr::Ustr;
 mod core;
 mod ide;
 mod smt;
@@ -615,6 +616,33 @@ impl LanguageServer for Backend {
                     _ => (),
                 }
                 return Ok(None);
+            }
+            "uvls/export_model" => {
+                // exports model structure as json
+                let root_fileid = FileID::from_uri(&Url::parse(uri.as_str()).unwrap());
+                let root_graph = self.pipeline.root().borrow_and_update().clone();
+                if !root_graph.contains_id(root_fileid) {
+                    return Ok(None);
+                }
+                let ast_document = root_graph.file(root_fileid);
+
+                let all_features = ast_document
+                    .all_features()
+                    .map(|feature_symbol| {
+                        JSONFeature::from_ast(feature_symbol, ast_document)
+                    })
+                    .collect::<Vec<JSONFeature>>();
+                let json_response = serde_json::to_string(&all_features).unwrap();
+
+                self.pipeline
+                    .client()
+                    .send_notification::<tower_lsp::lsp_types::notification::ShowMessage>(
+                        ShowMessageParams {
+                            typ: MessageType::INFO,
+                            message: json_response,
+                        },
+                    )
+                    .await;
             }
             _ => (),
         }
