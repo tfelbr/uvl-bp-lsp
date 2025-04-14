@@ -998,6 +998,7 @@ fn add_function_keywords(query: &str, top: &mut TopN<CompletionOpt>, w: f32) {
             "requested($1) ".into(),
             "blocked($1) ".into(),
             "waited_for($1) ".into(),
+            "excluding($1) ".into(),
         ],
     );
 }

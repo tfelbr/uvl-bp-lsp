@@ -354,11 +354,11 @@ fn opt_aggregate_op(state: &mut VisitorGraph) -> Option<AggregateOP> {
         _ => None,
     }
 }
-fn opt_bp_event_op(state: &mut VisitorGraph) -> Option<EventOP> {
+fn opt_bp_event_op(state: &mut VisitorGraph) -> Option<UnaryEventOP> {
     match state.slice(state.child_by_name("op")?).borrow() {
-        "requested" => Some(EventOP::Requested),
-        "blocked" => Some(EventOP::Blocked),
-        "waited_for" => Some(EventOP::WaitedFor),
+        "requested" => Some(UnaryEventOP::Requested),
+        "blocked" => Some(UnaryEventOP::Blocked),
+        "waited_for" => Some(UnaryEventOP::WaitedFor),
         _ => None,
     }
 }
@@ -412,10 +412,9 @@ fn opt_bp_event(state: &mut VisitorGraph) -> Option<BPExpr> {
     let args = opt_function_args(state)?;
     match args.len() {
         0 => None,
-        1 => Some(BPExpr::EventAggregate {
+        1 => Some(BPExpr::UnaryEventAggregate {
             op,
             query: args[0].clone(),
-            context: None,
         }),
         _ => None,
     }

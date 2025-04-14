@@ -566,13 +566,22 @@ fn opt_aggregate_op(state: &mut VisitorState) -> Option<AggregateOP> {
         }
     }
 }
-fn opt_bp_event_op(state: &mut VisitorState) -> Option<EventOP> {
+fn opt_unary_bp_event_op(state: &mut VisitorState) -> Option<UnaryEventOP> {
     match state.slice(state.child_by_name("op")?).borrow() {
-        "requested" => Some(EventOP::Requested),
-        "blocked" => Some(EventOP::Blocked),
-        "waited_for" => Some(EventOP::WaitedFor),
+        "requested" => Some(UnaryEventOP::Requested),
+        "blocked" => Some(UnaryEventOP::Blocked),
+        "waited_for" => Some(UnaryEventOP::WaitedFor),
         _ => {
-            state.push_error(30, "unknown aggregate function");
+            state.push_error(30, "unknown event aggregate function");
+            None
+        }
+    }
+}
+fn opt_many_bp_event_op(state: &mut VisitorState) -> Option<ManyEventOP> {
+    match state.slice(state.child_by_name("op")?).borrow() {
+        "excluding" => Some(ManyEventOP::Excluding),
+        _ => {
+            state.push_error(30, "unknown event aggregate function");
             None
         }
     }
@@ -764,12 +773,7 @@ fn opt_aggregate(state: &mut VisitorState) -> Option<Expr> {
         }
     }
 }
-fn opt_bp_event(state: &mut VisitorState) -> Option<BPExpr> {
-    let op = opt_bp_event_op(state)?;
-    if state.child_by_name("tail").is_some() {
-        state.push_error(10, "tailing comma not allowed");
-    }
-    let args = opt_function_args(state)?;
+fn check_bp_arguments(args: &Vec<Path>, state: &mut VisitorState) {
     let argnames_by_index: HashMap<usize, ustr::Ustr> = HashMap::from_iter(
         args.iter()
             .flat_map(|p| p.names.clone())
@@ -786,17 +790,21 @@ fn opt_bp_event(state: &mut VisitorState) -> Option<BPExpr> {
             }
         });
         let check_for_type_annotation = |aidx: usize| -> bool {
-            state.ast.children(Symbol::Attribute(aidx)).find(|sym| {
-                if let Symbol::Attribute(aidx) = sym {
-                    let attr = state.ast.get_attribute(*aidx).unwrap();
-                    attr.name.name == "type"
-                        && matches!(&attr.value.value, Value::String(type_name) if {
-                            *type_name == String::from("BEvent")
-                        })
-                } else {
-                    false
-                }
-            }).is_some()
+            state
+                .ast
+                .children(Symbol::Attribute(aidx))
+                .find(|sym| {
+                    if let Symbol::Attribute(aidx) = sym {
+                        let attr = state.ast.get_attribute(*aidx).unwrap();
+                        attr.name.name == "type"
+                            && matches!(&attr.value.value, Value::String(type_name) if {
+                                *type_name == String::from("BEvent")
+                            })
+                    } else {
+                        false
+                    }
+                })
+                .is_some()
         };
         let mut events_found = 0;
         let mut correct_type_annotation = 0;
@@ -822,21 +830,49 @@ fn opt_bp_event(state: &mut VisitorState) -> Option<BPExpr> {
     } else if !correct_type_annotation {
         state.push_error(30, "'BEvent' type annotation may be missing for argument");
     }
-
+}
+fn opt_unary_bp_event(state: &mut VisitorState) -> Option<BPExpr> {
+    let op = opt_unary_bp_event_op(state)?;
+    if state.child_by_name("tail").is_some() {
+        state.push_error(10, "tailing comma not allowed");
+    }
+    let args = opt_function_args(state)?;
+    check_bp_arguments(&args, state);
     match args.len() {
         0 => {
             state.push_error(30, "missing event name");
             None
         }
-        1 => Some(BPExpr::EventAggregate {
+        1 => Some(BPExpr::UnaryEventAggregate {
             op,
             query: args[0].clone(),
-            context: None,
         }),
         _ => {
             state.push_error(30, "too many arguments");
             None
         }
+    }
+}
+fn opt_many_bp_event(state: &mut VisitorState) -> Option<BPExpr> {
+    let op = opt_many_bp_event_op(state)?;
+    if state.child_by_name("tail").is_some() {
+        state.push_error(10, "tailing comma not allowed");
+    }
+    let args = opt_function_args(state)?;
+    check_bp_arguments(&args, state);
+    match args.len() {
+        0 => {
+            state.push_error(30, "missing event names");
+            None
+        }
+        1 => {
+            state.push_error(30, "function requires at least two arguments");
+            None
+        }
+        _ => Some(BPExpr::ManyEventAggregate {
+            op,
+            queries: args.clone(),
+        }),
     }
 }
 fn opt_integer(state: &mut VisitorState) -> Option<Expr> {
@@ -1027,7 +1063,18 @@ fn opt_constraint(state: &mut VisitorState) -> Option<ConstraintDecl> {
                     state,
                     LanguageLevel::Arithmetic(vec![LanguageLevelArithmetic::Aggregate]),
                 );
-                let bp_expr = opt_bp_event(state)?;
+                let bp_expr = opt_unary_bp_event(state)?;
+                Some(Constraint::BPExpression(Box::new(BPExprDecl {
+                    content: bp_expr,
+                    span: span.clone(),
+                })))
+            }
+            "excluding" => {
+                check_langlvls(
+                    state,
+                    LanguageLevel::Arithmetic(vec![LanguageLevelArithmetic::Aggregate]),
+                );
+                let bp_expr = opt_many_bp_event(state)?;
                 Some(Constraint::BPExpression(Box::new(BPExprDecl {
                     content: bp_expr,
                     span: span.clone(),

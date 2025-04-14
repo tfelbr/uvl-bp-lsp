@@ -779,7 +779,7 @@ fn translate_constraint(
                 }
             }
         }
-        ast::Constraint::BPExpression(expr) => translate_bp_constraint(expr, m, builder)
+        ast::Constraint::BPExpression(expr) => translate_bp_constraint(expr, m, builder),
     }
 }
 /// Translates expr into Expressions which can be converted to Z3 Statements
@@ -853,9 +853,13 @@ fn translate_expr(decl: &ast::ExprDecl, m: InstanceID, builder: &mut SMTBuilder)
         ),
     }
 }
-fn translate_bp_constraint(decl: &ast::BPExprDecl, m: InstanceID, builder: &mut SMTBuilder) -> Expr {
+fn translate_bp_constraint(
+    decl: &ast::BPExprDecl,
+    m: InstanceID,
+    builder: &mut SMTBuilder,
+) -> Expr {
     match &decl.content {
-        ast::BPExpr::EventAggregate { op, context, query } => {
+        ast::BPExpr::UnaryEventAggregate { op, query } => {
             let mut all_requested: Vec<Expr> = Vec::new();
             let mut all_blocked: Vec<Expr> = Vec::new();
             let mut all_waited_for: Vec<Expr> = Vec::new();
@@ -864,42 +868,73 @@ fn translate_bp_constraint(decl: &ast::BPExprDecl, m: InstanceID, builder: &mut 
             let requested = [base_slice, &[Ustr::from("requested")]].concat();
             let blocked = [base_slice, &[Ustr::from("blocked")]].concat();
             let waited_for = [base_slice, &[Ustr::from("waited_for")]].concat();
-            
-            let tgt = context
-                .map(|sym| builder.module.resolve_value(m.sym(sym)))
-                .unwrap_or(m.sym(Symbol::Root));
+
+            let tgt = m.sym(Symbol::Root);
             let tgt_file = builder.module.file(tgt.instance);
-            tgt_file.visit_attributes(tgt.sym, |_feature, attrib, prefix| {
-                if prefix == requested.as_slice()
-                    && tgt_file.type_of(attrib).unwrap() == Type::Real
-                {
+            tgt_file.visit_attributes(tgt.sym, |_, attrib, prefix| {
+                if prefix == requested.as_slice() && tgt_file.type_of(attrib).unwrap() == Type::Real {
                     all_requested.push(builder.var(tgt.instance.sym(attrib)));
-                } 
-                else if prefix == blocked.as_slice()
-                    && tgt_file.type_of(attrib).unwrap() == Type::Real
-                {
+                } else if prefix == blocked.as_slice() && tgt_file.type_of(attrib).unwrap() == Type::Real {
                     all_blocked.push(builder.var(tgt.instance.sym(attrib)));
-                } 
-                else if prefix == waited_for.as_slice()
-                    && tgt_file.type_of(attrib).unwrap() == Type::Real
-                {
+                } else if prefix == waited_for.as_slice() && tgt_file.type_of(attrib).unwrap() == Type::Real {
                     all_waited_for.push(builder.var(tgt.instance.sym(attrib)));
                 }
             });
 
             match op {
-                ast::EventOP::Requested => {
-                    if all_requested.is_empty() { Expr::Bool(false) }
-                    else { Expr::Greater(vec![Expr::Add(all_requested), Expr::Real(0.0)]) }
-                },
-                ast::EventOP::Blocked => {
-                    if all_blocked.is_empty() { Expr::Bool(false) }
-                    else { Expr::Greater(vec![Expr::Add(all_blocked), Expr::Real(0.0)]) }
-                },
-                ast::EventOP::WaitedFor => {
-                    if all_waited_for.is_empty() { Expr::Bool(false) }
-                    else { Expr::Greater(vec![Expr::Add(all_waited_for), Expr::Real(0.0)]) }
-                },
+                ast::UnaryEventOP::Requested => {
+                    if all_requested.is_empty() {
+                        Expr::Bool(false)
+                    } else {
+                        Expr::Greater(vec![Expr::Add(all_requested), Expr::Real(0.0)])
+                    }
+                }
+                ast::UnaryEventOP::Blocked => {
+                    if all_blocked.is_empty() {
+                        Expr::Bool(false)
+                    } else {
+                        Expr::Greater(vec![Expr::Add(all_blocked), Expr::Real(0.0)])
+                    }
+                }
+                ast::UnaryEventOP::WaitedFor => {
+                    if all_waited_for.is_empty() {
+                        Expr::Bool(false)
+                    } else {
+                        Expr::Greater(vec![Expr::Add(all_waited_for), Expr::Real(0.0)])
+                    }
+                }
+            }
+        }
+        ast::BPExpr::ManyEventAggregate { op, queries } => {
+            let mut all_requested: HashMap<i32, Vec<Expr>> = HashMap::new();
+            let mut all_blocked: HashMap<i32, Vec<Expr>> = HashMap::new();
+            let mut index = 0;
+
+            for query in queries {
+                let base_slice = query.names.as_slice();
+                let requested = [base_slice, &[Ustr::from("requested")]].concat();
+                let blocked = [base_slice, &[Ustr::from("blocked")]].concat();
+                let waited_for = [base_slice, &[Ustr::from("waited_for")]].concat();
+
+                let tgt = m.sym(Symbol::Root);
+                let tgt_file = builder.module.file(tgt.instance);
+
+                all_requested.insert(index, Vec::new());
+                all_blocked.insert(index, Vec::new());
+                tgt_file.visit_attributes(tgt.sym, |_, attrib, prefix| {
+                    if prefix == requested.as_slice() && tgt_file.type_of(attrib).unwrap() == Type::Real {
+                        all_requested[index].push(builder.var(tgt.instance.sym(attrib)));
+                    } else if prefix == blocked.as_slice() && tgt_file.type_of(attrib).unwrap() == Type::Real {
+                        all_blocked[index].push(builder.var(tgt.instance.sym(attrib)));
+                    }
+                });
+                index += 1;
+            }
+
+            match op {
+                ast::ManyEventOP::Excluding => {
+                    Expr::Less(vec![Expr::Real(length), Expr::Real(2.0)])
+                }
             }
         }
     }

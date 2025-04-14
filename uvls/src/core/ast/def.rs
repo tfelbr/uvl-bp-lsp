@@ -211,10 +211,15 @@ pub enum AggregateOP {
 }
 
 #[derive(Clone, Debug)]
-pub enum EventOP {
+pub enum UnaryEventOP {
     Requested,
     Blocked,
     WaitedFor,
+}
+
+#[derive(Clone, Debug)]
+pub enum ManyEventOP {
+    Excluding,
 }
 
 #[derive(Clone, Debug)]
@@ -282,11 +287,8 @@ pub struct ExprDecl {
 }
 #[derive(Clone, Debug)]
 pub enum BPExpr {
-    EventAggregate {
-        op: EventOP,
-        context: Option<Symbol>,
-        query: Path,
-    },
+    UnaryEventAggregate { op: UnaryEventOP, query: Path },
+    ManyEventAggregate { op: ManyEventOP, queries: Vec<Path> },
 }
 #[derive(Clone, Debug)]
 pub struct BPExprDecl {
