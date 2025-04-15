@@ -628,7 +628,7 @@ impl LanguageServer for Backend {
                 let all_features = ast_document
                     .all_features()
                     .map(|feature_symbol| {
-                        JSONFeature::from_ast(feature_symbol, ast_document)
+                        JSONFeature::from_ast(feature_symbol, ast_document).unwrap()
                     })
                     .collect::<Vec<JSONFeature>>();
                 let json_response = serde_json::to_string(&all_features).unwrap();

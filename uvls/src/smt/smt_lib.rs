@@ -1,4 +1,5 @@
 use crate::core::*;
+use dioxus::html::base;
 use hashbrown::HashMap;
 use indexmap::IndexSet;
 use lazy_static::lazy_static;
@@ -872,11 +873,16 @@ fn translate_bp_constraint(
             let tgt = m.sym(Symbol::Root);
             let tgt_file = builder.module.file(tgt.instance);
             tgt_file.visit_attributes(tgt.sym, |_, attrib, prefix| {
-                if prefix == requested.as_slice() && tgt_file.type_of(attrib).unwrap() == Type::Real {
+                if prefix == requested.as_slice() && tgt_file.type_of(attrib).unwrap() == Type::Real
+                {
                     all_requested.push(builder.var(tgt.instance.sym(attrib)));
-                } else if prefix == blocked.as_slice() && tgt_file.type_of(attrib).unwrap() == Type::Real {
+                } else if prefix == blocked.as_slice()
+                    && tgt_file.type_of(attrib).unwrap() == Type::Real
+                {
                     all_blocked.push(builder.var(tgt.instance.sym(attrib)));
-                } else if prefix == waited_for.as_slice() && tgt_file.type_of(attrib).unwrap() == Type::Real {
+                } else if prefix == waited_for.as_slice()
+                    && tgt_file.type_of(attrib).unwrap() == Type::Real
+                {
                     all_waited_for.push(builder.var(tgt.instance.sym(attrib)));
                 }
             });
@@ -908,33 +914,115 @@ fn translate_bp_constraint(
         ast::BPExpr::ManyEventAggregate { op, queries } => {
             let mut all_requested: HashMap<i32, Vec<Expr>> = HashMap::new();
             let mut all_blocked: HashMap<i32, Vec<Expr>> = HashMap::new();
+            let mut all_priorities: HashMap<i32, Vec<Expr>> = HashMap::new();
             let mut index = 0;
+
+            let tgt = m.sym(Symbol::Root);
+            let tgt_file = builder.module.file(tgt.instance);
 
             for query in queries {
                 let base_slice = query.names.as_slice();
-                let requested = [base_slice, &[Ustr::from("requested")]].concat();
-                let blocked = [base_slice, &[Ustr::from("blocked")]].concat();
-                let waited_for = [base_slice, &[Ustr::from("waited_for")]].concat();
-
-                let tgt = m.sym(Symbol::Root);
-                let tgt_file = builder.module.file(tgt.instance);
 
                 all_requested.insert(index, Vec::new());
                 all_blocked.insert(index, Vec::new());
+                all_priorities.insert(index, Vec::new());
+
                 tgt_file.visit_attributes(tgt.sym, |_, attrib, prefix| {
-                    if prefix == requested.as_slice() && tgt_file.type_of(attrib).unwrap() == Type::Real {
-                        all_requested[index].push(builder.var(tgt.instance.sym(attrib)));
-                    } else if prefix == blocked.as_slice() && tgt_file.type_of(attrib).unwrap() == Type::Real {
-                        all_blocked[index].push(builder.var(tgt.instance.sym(attrib)));
+                    if prefix == base_slice {
+                        let attribute = tgt_file.get_attribute(attrib.offset()).unwrap();
+                        let mut requested = None;
+                        let mut blocked = None;
+                        let mut priority = None;
+                        match attribute.value.value {
+                            Value::Attributes => {
+                                for sub_attr_sym in tgt_file.direct_children(attrib) {
+                                    let sub_attr =
+                                        tgt_file.get_attribute(sub_attr_sym.offset()).unwrap();
+                                    match sub_attr.value.value {
+                                        Value::Number(_) => {
+                                            if sub_attr.name.name == "requested" {
+                                                requested = Some(sub_attr_sym)
+                                            } else if sub_attr.name.name == "blocked" {
+                                                blocked = Some(sub_attr_sym)
+                                            } else if sub_attr.name.name == "priority" {
+                                                priority = Some(sub_attr_sym)
+                                            }
+                                        }
+                                        _ => {}
+                                    }
+                                }
+                            }
+                            _ => {}
+                        }
+                        match requested {
+                            Some(value) => {
+                                all_requested
+                                    .get_mut(&index)
+                                    .unwrap()
+                                    .push(builder.var(tgt.instance.sym(value)));
+                                match priority {
+                                    Some(value) => {
+                                        all_priorities
+                                            .get_mut(&index)
+                                            .unwrap()
+                                            .push(builder.var(tgt.instance.sym(value)));
+                                    }
+                                    _ => {}
+                                }
+                            }
+                            _ => {}
+                        }
+                        match blocked {
+                            Some(value) => {
+                                all_blocked
+                                    .get_mut(&index)
+                                    .unwrap()
+                                    .push(builder.var(tgt.instance.sym(value)));
+                            }
+                            _ => {}
+                        }
                     }
                 });
                 index += 1;
             }
-
-            match op {
-                ast::ManyEventOP::Excluding => {
-                    Expr::Less(vec![Expr::Real(length), Expr::Real(2.0)])
+            let mut total_expressions = Vec::new();
+            for current in 0..index {
+                let mut implies_vector = Vec::new();
+                for other in 0..index {
+                    if other != current {
+                        // implies_vector.push(Expr::Or(vec![
+                        //     Expr::Less(vec![
+                        //         Expr::Add(all_requested[&other].clone()),
+                        //         Expr::Real(1.0),
+                        //     ]),
+                        //     Expr::Greater(vec![
+                        //         Expr::Add(all_blocked[&other].clone()),
+                        //         Expr::Real(0.0),
+                        //     ]),
+                        // ]));
+                        // implies_vector.push(Expr::Bool(true));
+                        implies_vector.push(
+                            Expr::Greater(vec![
+                                Expr::Add(all_blocked[&other].clone()),
+                                Expr::Real(0.0),
+                            ]),
+                        )
+                    }
                 }
+                let expr = Expr::Implies(vec![
+                    Expr::Greater(vec![
+                        Expr::Add(all_requested[&0].clone()),
+                        Expr::Real(0.0),
+                    ]),
+                    Expr::And(vec![Expr::Greater(vec![
+                        Expr::Add(all_blocked[&1].clone()),
+                        Expr::Real(0.0),
+                    ]),])
+                ]);
+                total_expressions.push(expr);
+            }
+            match op {
+                ast::ManyEventOP::Excluding => Expr::And(total_expressions),
             }
         }
     }
