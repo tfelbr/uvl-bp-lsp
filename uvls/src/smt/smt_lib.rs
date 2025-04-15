@@ -862,9 +862,9 @@ fn make_max_expr(values: &Vec<Expr>) -> Option<Expr> {
             for i in 1..values.len() {
                 let compatant = values[i].clone();
                 current_max = Expr::Ite(
-                    Box::new(Expr::Greater(vec![current_max.clone(), compatant.clone()])), 
-                    Box::new(current_max),  
-                    Box::new(compatant), 
+                    Box::new(Expr::Greater(vec![current_max.clone(), compatant.clone()])),
+                    Box::new(current_max),
+                    Box::new(compatant),
                 )
             }
             Some(current_max)
@@ -874,7 +874,20 @@ fn make_max_expr(values: &Vec<Expr>) -> Option<Expr> {
 fn to_bool_if_equal(comparison: Expr, values: &Vec<Expr>) -> Vec<Expr> {
     values
         .iter()
-        .map(|value| {Expr::Equal(vec![comparison.clone(), value.clone()])})
+        .map(|value| Expr::Equal(vec![comparison.clone(), value.clone()]))
+        .collect::<Vec<Expr>>()
+}
+fn make_filter_expr(predicates: Vec<Expr>, fallback: Expr, values: &Vec<Expr>) -> Vec<Expr> {
+    values
+        .iter()
+        .enumerate()
+        .map(|(index, value)| {
+            Expr::Ite(
+                Box::new(predicates[index].clone()),
+                Box::new(value.clone()),
+                Box::new(fallback.clone()),
+            )
+        })
         .collect::<Vec<Expr>>()
 }
 fn translate_bp_constraint(
@@ -953,57 +966,36 @@ fn translate_bp_constraint(
                 tgt_file.visit_attributes(tgt.sym, |_, attrib, prefix| {
                     if prefix == base_slice {
                         let attribute = tgt_file.get_attribute(attrib.offset()).unwrap();
-                        let mut requested = None;
-                        let mut blocked = None;
-                        let mut priority = None;
+                        let mut requested = Expr::Real(0.0);
+                        let mut blocked = Expr::Real(0.0);
+                        let mut priority = Expr::Real(0.0);
                         match attribute.value.value {
                             Value::Attributes => {
-                                tgt_file.direct_children(attrib)
-                                    .for_each(|sub_attr_sym| {
-                                        let sub_attr = tgt_file.get_attribute(sub_attr_sym.offset()).unwrap();
-                                        match sub_attr.value.value {
-                                            Value::Number(_) => {
-                                                if sub_attr.name.name == "requested" {
-                                                    requested = Some(sub_attr_sym)
-                                                } else if sub_attr.name.name == "blocked" {
-                                                    blocked = Some(sub_attr_sym)
-                                                } else if sub_attr.name.name == "priority" {
-                                                    priority = Some(sub_attr_sym)
-                                                }
+                                tgt_file.direct_children(attrib).for_each(|sub_attr_sym| {
+                                    let sub_attr =
+                                        tgt_file.get_attribute(sub_attr_sym.offset()).unwrap();
+                                    match sub_attr.value.value {
+                                        Value::Number(_) => {
+                                            if sub_attr.name.name == "requested" {
+                                                requested =
+                                                    builder.var(tgt.instance.sym(sub_attr_sym));
+                                            } else if sub_attr.name.name == "blocked" {
+                                                blocked =
+                                                    builder.var(tgt.instance.sym(sub_attr_sym));
+                                            } else if sub_attr.name.name == "priority" {
+                                                priority =
+                                                    builder.var(tgt.instance.sym(sub_attr_sym));
                                             }
-                                            _ => {}
                                         }
-                                    })
-                            }
-                            _ => {}
-                        }
-                        match requested {
-                            Some(value) => {
-                                all_requested
-                                    .get_mut(&index)
-                                    .unwrap()
-                                    .push(builder.var(tgt.instance.sym(value)));
-                                match priority {
-                                    Some(value) => {
-                                        all_priorities
-                                            .get_mut(&index)
-                                            .unwrap()
-                                            .push(builder.var(tgt.instance.sym(value)));
+                                        _ => {}
                                     }
-                                    _ => {}
-                                }
+                                })
                             }
                             _ => {}
                         }
-                        match blocked {
-                            Some(value) => {
-                                all_blocked
-                                    .get_mut(&index)
-                                    .unwrap()
-                                    .push(builder.var(tgt.instance.sym(value)));
-                            }
-                            _ => {}
-                        }
+                        all_requested.get_mut(&index).unwrap().push(requested);
+                        all_blocked.get_mut(&index).unwrap().push(blocked);
+                        all_priorities.get_mut(&index).unwrap().push(priority);
                     }
                 });
                 index += 1;
@@ -1013,23 +1005,51 @@ fn translate_bp_constraint(
             for current in 0..index {
                 let is_requested = match all_requested[&current].len() {
                     0 => Expr::Bool(false),
-                    _ => Expr::Greater(vec![Expr::Add(all_requested[&current].clone()), Expr::Real(0.0)]) 
+                    _ => Expr::Greater(vec![
+                        Expr::Add(all_requested[&current].clone()),
+                        Expr::Real(0.0),
+                    ]),
                 };
                 let is_blocked = match all_blocked[&current].len() {
                     0 => Expr::Bool(false),
-                    _ => Expr::Greater(vec![Expr::Add(all_blocked[&current].clone()), Expr::Real(0.0)]) 
+                    _ => Expr::Greater(vec![
+                        Expr::Add(all_blocked[&current].clone()),
+                        Expr::Real(0.0),
+                    ]),
                 };
                 let highest_priority = match all_priorities[&current].len() {
                     0 => Expr::Real(0.0),
-                    _ => make_max_expr(&all_priorities[&current]).unwrap(),
+                    _ => make_max_expr(&make_filter_expr(
+                        all_requested[&current]
+                            .iter()
+                            .map(|item| {
+                                Expr::And(vec![
+                                    Expr::Greater(vec![item.clone(), Expr::Real(0.0)]),
+                                    Expr::Not(Box::new(is_blocked.clone())),
+                                ])
+                            })
+                            .collect::<Vec<Expr>>(),
+                        Expr::Real(0.0),
+                        &all_priorities[&current],
+                    ))
+                    .unwrap(),
                 };
-                total_requested.push(Expr::And(vec![is_requested, Expr::Not(Box::new(is_blocked))]));
+                total_requested.push(Expr::And(vec![
+                    is_requested,
+                    Expr::Not(Box::new(is_blocked)),
+                ]));
                 highest_priorities.push(highest_priority);
             }
             match op {
                 ast::ManyEventOP::Excluding => Expr::Or(vec![
                     Expr::AtMost(1, total_requested),
-                    Expr::AtMost(1, to_bool_if_equal(make_max_expr(&highest_priorities).unwrap(), &highest_priorities))
+                    Expr::AtMost(
+                        1,
+                        to_bool_if_equal(
+                            make_max_expr(&highest_priorities).unwrap(),
+                            &highest_priorities,
+                        ),
+                    ),
                 ]),
             }
         }
