@@ -579,7 +579,7 @@ fn opt_unary_bp_event_op(state: &mut VisitorState) -> Option<UnaryEventOP> {
 }
 fn opt_many_bp_event_op(state: &mut VisitorState) -> Option<ManyEventOP> {
     match state.slice(state.child_by_name("op")?).borrow() {
-        "excluding" => Some(ManyEventOP::Excluding),
+        "conflicting" => Some(ManyEventOP::Conflicting),
         _ => {
             state.push_error(30, "unknown event aggregate function");
             None
@@ -1069,7 +1069,7 @@ fn opt_constraint(state: &mut VisitorState) -> Option<ConstraintDecl> {
                     span: span.clone(),
                 })))
             }
-            "excluding" => {
+            "conflicting" => {
                 check_langlvls(
                     state,
                     LanguageLevel::Arithmetic(vec![LanguageLevelArithmetic::Aggregate]),

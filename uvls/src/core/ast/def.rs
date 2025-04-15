@@ -219,7 +219,7 @@ pub enum UnaryEventOP {
 
 #[derive(Clone, Debug)]
 pub enum ManyEventOP {
-    Excluding,
+    Conflicting,
 }
 
 #[derive(Clone, Debug)]

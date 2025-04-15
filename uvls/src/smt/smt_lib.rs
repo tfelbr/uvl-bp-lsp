@@ -1041,7 +1041,7 @@ fn translate_bp_constraint(
                 highest_priorities.push(highest_priority);
             }
             match op {
-                ast::ManyEventOP::Excluding => Expr::Or(vec![
+                ast::ManyEventOP::Conflicting => Expr::Or(vec![
                     Expr::AtMost(1, total_requested),
                     Expr::AtMost(
                         1,
