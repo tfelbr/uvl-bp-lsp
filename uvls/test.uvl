@@ -1,14 +1,15 @@
 features
     Root
-        optional
-            Thread1 {type 'BThread', Event1 {type 'BEvent', requested 1}}
-            Thread2 {type 'BThread', Event1 {type 'BEvent', blocked 1}}
-            Thread3 {type 'BThread', Event2 {type 'BEvent', requested 1}}
+        mandatory
+            Thread1 {type 'BThread', Event1 {type 'BEvent', requested 1, priority 2}}
+            Thread2 {type 'BThread', Event1 {type 'BEvent', blocked 0}}
+            Thread3 {type 'BThread', Event2 {type 'BEvent', requested 1, priority 2}}
+            Thread4 {type 'BThread', Event3 {type 'BEvent', requested 1, priority 1}}
     Env {type 'Env', foo 0}
     EnvPath {type 'EnvPath', foo '~/foo'}
 
 constraints
-    excluding(Event1, Event2)
+    conflicting(Event1, Event2, Event3)
     // requested(Event1) => !blocked(Event1)
     // waited_for(Event2)
     // (Env.foo < 50) => !Thread1
