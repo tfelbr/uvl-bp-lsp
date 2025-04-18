@@ -10,11 +10,9 @@ use log::info;
 use parse::*;
 use ropey::Rope;
 use semantic::FileID;
-use serde::de::IntoDeserializer;
+use ustr::Ustr;
 use std::borrow::{Borrow, Cow};
-use std::collections::HashMap;
 use std::collections::HashSet;
-use std::ops::Range;
 use tokio::time::Instant;
 use tower_lsp::lsp_types::{DiagnosticSeverity, Url};
 use tree_sitter::{Node, Tree, TreeCursor};
@@ -775,62 +773,29 @@ fn opt_aggregate(state: &mut VisitorState) -> Option<Expr> {
         }
     }
 }
-fn check_bp_arguments(args: &Vec<Path>, state: &mut VisitorState) {
-    let argnames_by_index: HashMap<usize, ustr::Ustr> = HashMap::from_iter(
-        args.iter()
-            .flat_map(|p| p.names.clone())
-            .into_iter()
-            .enumerate(),
-    );
-    let args_last_index = argnames_by_index.keys().max();
-    let check_arguments = || -> (bool, bool) {
-        let all_attribute_indices = state.ast.all_attributes().filter_map(|sym| {
-            if let Symbol::Attribute(aidx) = sym {
-                Some(aidx)
-            } else {
-                None
-            }
-        });
-        let check_for_type_annotation = |aidx: usize| -> bool {
-            state
-                .ast
-                .children(Symbol::Attribute(aidx))
-                .find(|sym| {
-                    if let Symbol::Attribute(aidx) = sym {
-                        let attr = state.ast.get_attribute(*aidx).unwrap();
-                        attr.name.name == "type"
-                            && matches!(&attr.value.value, Value::String(type_name) if {
-                                *type_name == String::from("BEvent")
-                            })
-                    } else {
-                        false
-                    }
-                })
-                .is_some()
-        };
-        let mut events_found = 0;
-        let mut correct_type_annotation = 0;
-        let mut wrong_type = 0;
-        for aidx in all_attribute_indices {
-            let attr = state.ast.get_attribute(aidx).unwrap();
-            if attr.name.name == argnames_by_index[&args_last_index.unwrap()] {
-                events_found += 1;
-                if matches!(attr.value.value, Value::Attributes) {
-                    correct_type_annotation += check_for_type_annotation(aidx) as i32;
-                } else {
-                    wrong_type += 1;
+fn check_bp_arguments(state: &mut VisitorState, args: &Vec<Path>) {
+    let mut arg_names: Vec<Ustr> = Vec::new();
+    let mut arg_names_with_errors: Vec<Ustr> = Vec::new();
+    for path in args.iter() {
+        arg_names.extend(path.names.clone());
+    }
+    for attribute_sym in state.ast.all_attributes() {
+        let attribute = state.ast.get_attribute(attribute_sym.offset()).unwrap();
+        if arg_names.contains(&attribute.name.name) && state.ast.get_bp_event(attribute_sym).is_none() {
+            arg_names_with_errors.push(attribute.name.name.clone());
+            state.push_err_raw(
+                ErrorInfo {
+                    location: lsp_range(attribute.name.clone().span, state.source()).unwrap(),
+                    severity: DiagnosticSeverity::ERROR,
+                    weight: 30,
+                    msg: "Name is used as an argument to a bp aggregate function but is no BEvent here".into(),
+                    error_type: ErrorType::Any,
                 }
-            }
+            );
         }
-
-        (wrong_type == 0, correct_type_annotation == events_found)
-    };
-
-    let (last_arg_attributes, correct_type_annotation) = check_arguments();
-    if !last_arg_attributes {
-        state.push_error(30, "invalid argument, expected a behavioral event");
-    } else if !correct_type_annotation {
-        state.push_error(30, "'BEvent' type annotation may be missing for argument");
+    }
+    for name in arg_names_with_errors {
+        state.push_error(30, format!("Some occurences of {} are no BEvents", name));
     }
 }
 fn opt_unary_bp_event(state: &mut VisitorState) -> Option<BPExpr> {
@@ -839,7 +804,7 @@ fn opt_unary_bp_event(state: &mut VisitorState) -> Option<BPExpr> {
         state.push_error(10, "tailing comma not allowed");
     }
     let args = opt_function_args(state)?;
-    check_bp_arguments(&args, state);
+    check_bp_arguments(state, &args);
     match args.len() {
         0 => {
             state.push_error(30, "missing event name");
@@ -861,7 +826,7 @@ fn opt_many_bp_event(state: &mut VisitorState) -> Option<BPExpr> {
         state.push_error(10, "tailing comma not allowed");
     }
     let args = opt_function_args(state)?;
-    check_bp_arguments(&args, state);
+    check_bp_arguments(state, &args);
     match args.len() {
         0 => {
             state.push_error(30, "missing event names");
@@ -1177,6 +1142,7 @@ fn check_bp_event(state: &mut VisitorState, attribute: Symbol, parent: Symbol) {
     };
     if !is_event {return}
     state.ast.bp_events.push(attribute);
+    state.ast.bp_event_names.insert(state.ast.get_attribute(attribute.offset()).unwrap().name.name);
     if !parent_is_feature {
         let attr = state.ast.get_attribute(attribute.offset()).unwrap();
         state.push_err_raw(
@@ -1596,6 +1562,22 @@ fn visit_top_lvl(state: &mut VisitorState) {
         }
     }
 }
+fn warn_about_missing_bp_event_annotations(state: &mut VisitorState) {
+    for attribute_sym in state.ast.all_attributes() {
+        let attribute = state.ast.get_attribute(attribute_sym.offset()).unwrap();
+        if state.ast.get_bp_event(attribute_sym).is_none() && state.ast.bp_event_names.contains(&attribute.name.name) {
+            state.push_err_raw(
+                ErrorInfo {
+                    location: lsp_range(attribute.name.clone().span, state.source()).unwrap(),
+                    severity: DiagnosticSeverity::WARNING,
+                    weight: 30,
+                    msg: "Attribute name is defined as BEvent elsewhere".into(),
+                    error_type: ErrorType::Any,
+                }
+            );
+        }
+    }
+}
 /// visits all valid children of a tree-sitter (green tree) recursively to translate them into the
 /// AST(red tree)
 pub fn visit_root(source: Rope, tree: Tree, uri: Url, timestamp: Instant) -> AstDocument {
@@ -1607,6 +1589,7 @@ pub fn visit_root(source: Rope, tree: Tree, uri: Url, timestamp: Instant) -> Ast
             source: &source,
         };
         visit_children(&mut state, visit_top_lvl);
+        warn_about_missing_bp_event_annotations(&mut state);
         state.connect();
         (state.ast, state.errors)
     };

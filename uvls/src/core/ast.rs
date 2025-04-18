@@ -13,6 +13,7 @@ use hashbrown::HashMap;
 use itertools::Itertools;
 use ropey::Rope;
 use semantic::FileID;
+use std::collections::HashSet;
 use std::hash::Hash;
 use std::path::Component;
 use tokio::time::Instant;
@@ -80,6 +81,7 @@ struct Ast {
     index: HashMap<(Symbol, Ustr, SymbolKind), Symbol>,
     // Special adaption for BP. Discovers all BP events and saves them here for faster lookup
     bp_events: Vec<Symbol>,
+    bp_event_names: HashSet<Ustr>,
 }
 impl Ast {
     pub fn import_prefix(&self, sym: Symbol) -> &[Ustr] {
