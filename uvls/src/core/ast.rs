@@ -76,8 +76,10 @@ struct Ast {
     groups: Vec<Group>,
     dirs: Vec<Dir>,
     structure: TreeMap,
-    //The index is stored as a typed radix tree
+    // The index is stored as a typed radix tree
     index: HashMap<(Symbol, Ustr, SymbolKind), Symbol>,
+    // Special adaption for BP. Discovers all BP events and saves them here for faster lookup
+    bp_events: Vec<Symbol>,
 }
 impl Ast {
     pub fn import_prefix(&self, sym: Symbol) -> &[Ustr] {
@@ -251,6 +253,9 @@ impl Ast {
         }
 
         return relatives;
+    }
+    fn get_bp_event(&self, sym: Symbol) -> Option<&Attribute> {
+        if self.bp_events.contains(&sym) {self.get_attribute(sym.offset())} else {None}
     }
 }
 /// Combines the AST with metadata, this is also a public interface to the AST.

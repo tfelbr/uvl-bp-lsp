@@ -10,9 +10,11 @@ use log::info;
 use parse::*;
 use ropey::Rope;
 use semantic::FileID;
+use serde::de::IntoDeserializer;
 use std::borrow::{Borrow, Cow};
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::ops::Range;
 use tokio::time::Instant;
 use tower_lsp::lsp_types::{DiagnosticSeverity, Url};
 use tree_sitter::{Node, Tree, TreeCursor};
@@ -1152,6 +1154,43 @@ fn opt_value(state: &mut VisitorState) -> Value {
     }
 }
 
+fn is_bp_event(state: &mut VisitorState, attribute: Symbol) -> bool {
+    let attr = state.ast.get_attribute(attribute.offset()).unwrap();
+    match attr.value.value {
+        Value::Attributes => {
+            state.ast.children(attribute).find(|child|{
+                let child_attr = state.ast.get_attribute(child.clone().offset()).unwrap();
+                child_attr.name.name == "type" && match &child_attr.value.value {
+                    Value::String(value) => if value == "BEvent" {true} else {false},
+                    _ => false,
+                }
+            }).is_some()
+        },
+        _ => false,
+    }
+}
+fn check_bp_event(state: &mut VisitorState, attribute: Symbol, parent: Symbol) {
+    let is_event = is_bp_event(state, attribute);
+    let parent_is_feature = match parent {
+        Symbol::Feature(_) => true,
+        _ => false,
+    };
+    if !is_event {return}
+    state.ast.bp_events.push(attribute);
+    if !parent_is_feature {
+        let attr = state.ast.get_attribute(attribute.offset()).unwrap();
+        state.push_err_raw(
+            ErrorInfo {
+                location: lsp_range(attr.name.clone().span, state.source()).unwrap(),
+                severity: DiagnosticSeverity::ERROR,
+                weight: 30,
+                msg: "BEvents must be direct children of features".into(),
+                error_type: ErrorType::Any,
+            }
+        );
+    }
+}
+
 fn visit_attribute_value(state: &mut VisitorState, parent: Symbol, duplicate: &bool) {
     state.goto_field("name");
     let name = opt_name(state).unwrap();
@@ -1172,6 +1211,7 @@ fn visit_attribute_value(state: &mut VisitorState, parent: Symbol, duplicate: &b
     if has_children {
         visit_children_arg(state, sym, &duplicate, visit_attributes);
     }
+    check_bp_event(state, sym, parent);
 }
 fn visit_constraint_list(state: &mut VisitorState, parent: Symbol, duplicate: &bool) {
     loop {
@@ -1206,6 +1246,38 @@ fn visit_attributes(state: &mut VisitorState, parent: Symbol, duplicate: &bool) 
         if !state.goto_next_sibling() {
             break;
         }
+    }
+}
+fn is_bp_thread_type_hint(attribute: &Attribute) -> bool {
+    attribute.name.name == "type" && match &attribute.value.value {
+        Value::String(value) => {if value == "BThread" {true} else {false}},
+        _ => false,
+    }
+}
+fn check_bp_thread(state: &mut VisitorState, feature: Symbol) {
+    let mut is_bp_thread = false;
+    let mut has_bp_events = false;
+    for child in state.ast.children(feature) {
+        match child {
+            Symbol::Attribute(_) => {
+                let attr = state.ast.get_attribute(child.offset()).unwrap();
+                if is_bp_thread_type_hint(attr) {is_bp_thread = true}
+                if state.ast.get_bp_event(child).is_some() {has_bp_events = true}
+            },
+            _ => {},
+        }
+    }
+    if !is_bp_thread && has_bp_events {
+        let feat = state.ast.get_feature(feature.offset()).unwrap();
+        state.push_err_raw(
+            ErrorInfo {
+                location: lsp_range(feat.name.clone().span, state.source()).unwrap(),
+                severity: DiagnosticSeverity::ERROR,
+                weight: 30,
+                msg: "Feature contains BEvents but is missing a BThread type annotation".into(),
+                error_type: ErrorType::Any,
+            }
+        );
     }
 }
 
@@ -1289,6 +1361,7 @@ fn visit_feature(
                 }
                 _ => {}
             }
+            check_bp_thread(state, sym.get(index).unwrap().clone());
         }
         if !state.goto_next_sibling() {
             break;
