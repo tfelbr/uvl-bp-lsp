@@ -10,12 +10,12 @@ use log::info;
 use parse::*;
 use ropey::Rope;
 use semantic::FileID;
-use ustr::Ustr;
 use std::borrow::{Borrow, Cow};
 use std::collections::HashSet;
 use tokio::time::Instant;
 use tower_lsp::lsp_types::{DiagnosticSeverity, Url};
 use tree_sitter::{Node, Tree, TreeCursor};
+use ustr::Ustr;
 use util::node_range;
 
 #[derive(Clone)]
@@ -781,17 +781,18 @@ fn check_bp_arguments(state: &mut VisitorState, args: &Vec<Path>) {
     }
     for attribute_sym in state.ast.all_attributes() {
         let attribute = state.ast.get_attribute(attribute_sym.offset()).unwrap();
-        if arg_names.contains(&attribute.name.name) && state.ast.get_bp_event(attribute_sym).is_none() {
+        if arg_names.contains(&attribute.name.name)
+            && state.ast.get_bp_event(attribute_sym).is_none()
+        {
             arg_names_with_errors.push(attribute.name.name.clone());
-            state.push_err_raw(
-                ErrorInfo {
-                    location: lsp_range(attribute.name.clone().span, state.source()).unwrap(),
-                    severity: DiagnosticSeverity::ERROR,
-                    weight: 30,
-                    msg: "Name is used as an argument to a bp aggregate function but is no BEvent here".into(),
-                    error_type: ErrorType::Any,
-                }
-            );
+            state.push_err_raw(ErrorInfo {
+                location: lsp_range(attribute.name.clone().span, state.source()).unwrap(),
+                severity: DiagnosticSeverity::ERROR,
+                weight: 30,
+                msg: "Name is used as an argument to a bp aggregate function but is no BEvent here"
+                    .into(),
+                error_type: ErrorType::Any,
+            });
         }
     }
     for name in arg_names_with_errors {
@@ -1119,18 +1120,74 @@ fn opt_value(state: &mut VisitorState) -> Value {
     }
 }
 
+fn check_event_attributes(state: &mut VisitorState, attribute: Symbol) {
+    let boolean_names: Vec<Ustr> = vec![
+        "requested".into(),
+        "blocked".into(),
+        "waited_for".into(),
+        "optional".into(),
+    ];
+    let errors = state
+        .ast
+        .children(attribute)
+        .filter_map(|child| {
+            let child_attr = state.ast.get_attribute(child.offset()).unwrap();
+            if boolean_names.contains(&child_attr.name.name)
+                && !match child_attr.value.value {
+                    Value::Bool(_) => true,
+                    _ => false,
+                }
+            {
+                Some((child_attr.clone(), "boolean"))
+            } else if child_attr.name.name == "priority"
+                && !match child_attr.value.value {
+                    Value::Number(_) => true,
+                    _ => false,
+                }
+            {
+                Some((child_attr.clone(), "number"))
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<(Attribute, &str)>>();
+    for (child, error_type) in errors {
+        let mut msg = String::from("");
+        match error_type {
+            "boolean" => msg = format!("If part of a BEvent, '{}' is required to be boolean", child.name.name),
+            "number" => msg = format!("If part of a BEvent, '{}' is required to be a number", child.name.name),
+            _ => {}
+        }
+        state.push_err_raw(ErrorInfo {
+            location: lsp_range(child.name.clone().span, state.source()).unwrap(),
+            severity: DiagnosticSeverity::ERROR,
+            weight: 30,
+            msg: msg.into(),
+            error_type: ErrorType::Any,
+        });
+    }
+}
 fn is_bp_event(state: &mut VisitorState, attribute: Symbol) -> bool {
     let attr = state.ast.get_attribute(attribute.offset()).unwrap();
     match attr.value.value {
-        Value::Attributes => {
-            state.ast.children(attribute).find(|child|{
+        Value::Attributes => state
+            .ast
+            .children(attribute)
+            .find(|child| {
                 let child_attr = state.ast.get_attribute(child.clone().offset()).unwrap();
-                child_attr.name.name == "type" && match &child_attr.value.value {
-                    Value::String(value) => if value == "BEvent" {true} else {false},
-                    _ => false,
-                }
-            }).is_some()
-        },
+                child_attr.name.name == "type"
+                    && match &child_attr.value.value {
+                        Value::String(value) => {
+                            if value == "BEvent" {
+                                true
+                            } else {
+                                false
+                            }
+                        }
+                        _ => false,
+                    }
+            })
+            .is_some(),
         _ => false,
     }
 }
@@ -1140,21 +1197,29 @@ fn check_bp_event(state: &mut VisitorState, attribute: Symbol, parent: Symbol) {
         Symbol::Feature(_) => true,
         _ => false,
     };
-    if !is_event {return}
+    if !is_event {
+        return;
+    }
     state.ast.bp_events.push(attribute);
-    state.ast.bp_event_names.insert(state.ast.get_attribute(attribute.offset()).unwrap().name.name);
+    state.ast.bp_event_names.insert(
+        state
+            .ast
+            .get_attribute(attribute.offset())
+            .unwrap()
+            .name
+            .name,
+    );
     if !parent_is_feature {
         let attr = state.ast.get_attribute(attribute.offset()).unwrap();
-        state.push_err_raw(
-            ErrorInfo {
-                location: lsp_range(attr.name.clone().span, state.source()).unwrap(),
-                severity: DiagnosticSeverity::ERROR,
-                weight: 30,
-                msg: "BEvents must be direct children of features".into(),
-                error_type: ErrorType::Any,
-            }
-        );
+        state.push_err_raw(ErrorInfo {
+            location: lsp_range(attr.name.clone().span, state.source()).unwrap(),
+            severity: DiagnosticSeverity::ERROR,
+            weight: 30,
+            msg: "BEvents must be direct children of features".into(),
+            error_type: ErrorType::Any,
+        });
     }
+    check_event_attributes(state, attribute);
 }
 
 fn visit_attribute_value(state: &mut VisitorState, parent: Symbol, duplicate: &bool) {
@@ -1215,10 +1280,17 @@ fn visit_attributes(state: &mut VisitorState, parent: Symbol, duplicate: &bool) 
     }
 }
 fn is_bp_thread_type_hint(attribute: &Attribute) -> bool {
-    attribute.name.name == "type" && match &attribute.value.value {
-        Value::String(value) => {if value == "BThread" {true} else {false}},
-        _ => false,
-    }
+    attribute.name.name == "type"
+        && match &attribute.value.value {
+            Value::String(value) => {
+                if value == "BThread" {
+                    true
+                } else {
+                    false
+                }
+            }
+            _ => false,
+        }
 }
 fn check_bp_thread(state: &mut VisitorState, feature: Symbol) {
     let mut is_bp_thread = false;
@@ -1227,23 +1299,25 @@ fn check_bp_thread(state: &mut VisitorState, feature: Symbol) {
         match child {
             Symbol::Attribute(_) => {
                 let attr = state.ast.get_attribute(child.offset()).unwrap();
-                if is_bp_thread_type_hint(attr) {is_bp_thread = true}
-                if state.ast.get_bp_event(child).is_some() {has_bp_events = true}
-            },
-            _ => {},
+                if is_bp_thread_type_hint(attr) {
+                    is_bp_thread = true
+                }
+                if state.ast.get_bp_event(child).is_some() {
+                    has_bp_events = true
+                }
+            }
+            _ => {}
         }
     }
     if !is_bp_thread && has_bp_events {
         let feat = state.ast.get_feature(feature.offset()).unwrap();
-        state.push_err_raw(
-            ErrorInfo {
-                location: lsp_range(feat.name.clone().span, state.source()).unwrap(),
-                severity: DiagnosticSeverity::ERROR,
-                weight: 30,
-                msg: "Feature contains BEvents but is missing a BThread type annotation".into(),
-                error_type: ErrorType::Any,
-            }
-        );
+        state.push_err_raw(ErrorInfo {
+            location: lsp_range(feat.name.clone().span, state.source()).unwrap(),
+            severity: DiagnosticSeverity::ERROR,
+            weight: 30,
+            msg: "Feature contains BEvents but is missing a BThread type annotation".into(),
+            error_type: ErrorType::Any,
+        });
     }
 }
 
@@ -1565,16 +1639,16 @@ fn visit_top_lvl(state: &mut VisitorState) {
 fn warn_about_missing_bp_event_annotations(state: &mut VisitorState) {
     for attribute_sym in state.ast.all_attributes() {
         let attribute = state.ast.get_attribute(attribute_sym.offset()).unwrap();
-        if state.ast.get_bp_event(attribute_sym).is_none() && state.ast.bp_event_names.contains(&attribute.name.name) {
-            state.push_err_raw(
-                ErrorInfo {
-                    location: lsp_range(attribute.name.clone().span, state.source()).unwrap(),
-                    severity: DiagnosticSeverity::WARNING,
-                    weight: 30,
-                    msg: "Attribute name is defined as BEvent elsewhere".into(),
-                    error_type: ErrorType::Any,
-                }
-            );
+        if state.ast.get_bp_event(attribute_sym).is_none()
+            && state.ast.bp_event_names.contains(&attribute.name.name)
+        {
+            state.push_err_raw(ErrorInfo {
+                location: lsp_range(attribute.name.clone().span, state.source()).unwrap(),
+                severity: DiagnosticSeverity::WARNING,
+                weight: 30,
+                msg: "Attribute name is defined as BEvent elsewhere".into(),
+                error_type: ErrorType::Any,
+            });
         }
     }
 }
