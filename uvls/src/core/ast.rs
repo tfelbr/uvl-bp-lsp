@@ -81,6 +81,7 @@ struct Ast {
     index: HashMap<(Symbol, Ustr, SymbolKind), Symbol>,
     // Special adaption for BP. Discovers all BP events and saves them here for faster lookup
     bp_events: Vec<Symbol>,
+    bp_events_optional: Vec<(Symbol, Symbol)>,
     bp_event_names: HashSet<Ustr>,
 }
 impl Ast {

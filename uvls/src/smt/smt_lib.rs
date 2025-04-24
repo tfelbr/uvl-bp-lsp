@@ -909,15 +909,14 @@ fn translate_bp_constraint(
             let tgt = m.sym(Symbol::Root);
             let tgt_file = builder.module.file(tgt.instance);
             tgt_file.visit_attributes(tgt.sym, |_, attrib, prefix| {
-                if prefix == requested.as_slice() && tgt_file.type_of(attrib).unwrap() == Type::Real
-                {
+                if prefix == requested.as_slice() && tgt_file.type_of(attrib).unwrap() == Type::Bool {
                     all_requested.push(builder.var(tgt.instance.sym(attrib)));
                 } else if prefix == blocked.as_slice()
-                    && tgt_file.type_of(attrib).unwrap() == Type::Real
+                    && tgt_file.type_of(attrib).unwrap() == Type::Bool
                 {
                     all_blocked.push(builder.var(tgt.instance.sym(attrib)));
                 } else if prefix == waited_for.as_slice()
-                    && tgt_file.type_of(attrib).unwrap() == Type::Real
+                    && tgt_file.type_of(attrib).unwrap() == Type::Bool
                 {
                     all_waited_for.push(builder.var(tgt.instance.sym(attrib)));
                 }
@@ -928,21 +927,21 @@ fn translate_bp_constraint(
                     if all_requested.is_empty() {
                         Expr::Bool(false)
                     } else {
-                        Expr::Greater(vec![Expr::Add(all_requested), Expr::Real(0.0)])
+                        Expr::AtLeast(1, all_requested)
                     }
                 }
                 ast::UnaryEventOP::Blocked => {
                     if all_blocked.is_empty() {
                         Expr::Bool(false)
                     } else {
-                        Expr::Greater(vec![Expr::Add(all_blocked), Expr::Real(0.0)])
+                        Expr::AtLeast(1, all_blocked)
                     }
                 }
                 ast::UnaryEventOP::WaitedFor => {
                     if all_waited_for.is_empty() {
                         Expr::Bool(false)
                     } else {
-                        Expr::Greater(vec![Expr::Add(all_waited_for), Expr::Real(0.0)])
+                        Expr::AtLeast(1, all_waited_for)
                     }
                 }
             }
@@ -966,25 +965,25 @@ fn translate_bp_constraint(
                 tgt_file.visit_attributes(tgt.sym, |_, attrib, prefix| {
                     if prefix == base_slice {
                         let attribute = tgt_file.get_attribute(attrib.offset()).unwrap();
-                        let mut requested = Expr::Real(0.0);
-                        let mut blocked = Expr::Real(0.0);
-                        let mut priority = Expr::Real(0.0);
+                        let mut requested = Expr::Bool(false);
+                        let mut blocked = Expr::Bool(false);
+                        let mut priority = Expr::Bool(false);
                         match attribute.value.value {
                             Value::Attributes => {
                                 tgt_file.direct_children(attrib).for_each(|sub_attr_sym| {
                                     let sub_attr =
                                         tgt_file.get_attribute(sub_attr_sym.offset()).unwrap();
                                     match sub_attr.value.value {
-                                        Value::Number(_) => {
+                                        Value::Bool(_) => {
                                             if sub_attr.name.name == "requested" {
-                                                requested =
-                                                    builder.var(tgt.instance.sym(sub_attr_sym));
+                                                requested = builder.var(tgt.instance.sym(sub_attr_sym));
                                             } else if sub_attr.name.name == "blocked" {
-                                                blocked =
-                                                    builder.var(tgt.instance.sym(sub_attr_sym));
-                                            } else if sub_attr.name.name == "priority" {
-                                                priority =
-                                                    builder.var(tgt.instance.sym(sub_attr_sym));
+                                                blocked = builder.var(tgt.instance.sym(sub_attr_sym));
+                                            }
+                                        },
+                                        Value::Number(_) => {
+                                            if sub_attr.name.name == "priority" {
+                                                priority = builder.var(tgt.instance.sym(sub_attr_sym));
                                             }
                                         }
                                         _ => {}
@@ -1005,17 +1004,11 @@ fn translate_bp_constraint(
             for current in 0..index {
                 let is_requested = match all_requested[&current].len() {
                     0 => Expr::Bool(false),
-                    _ => Expr::Greater(vec![
-                        Expr::Add(all_requested[&current].clone()),
-                        Expr::Real(0.0),
-                    ]),
+                    _ => Expr::AtLeast(1, all_requested[&current].clone()),
                 };
                 let is_blocked = match all_blocked[&current].len() {
                     0 => Expr::Bool(false),
-                    _ => Expr::Greater(vec![
-                        Expr::Add(all_blocked[&current].clone()),
-                        Expr::Real(0.0),
-                    ]),
+                    _ => Expr::AtLeast(1, all_blocked[&current].clone())
                 };
                 let highest_priority = match all_priorities[&current].len() {
                     0 => Expr::Real(0.0),
@@ -1024,7 +1017,7 @@ fn translate_bp_constraint(
                             .iter()
                             .map(|item| {
                                 Expr::And(vec![
-                                    Expr::Greater(vec![item.clone(), Expr::Real(0.0)]),
+                                    item.clone(),
                                     Expr::Not(Box::new(is_blocked.clone())),
                                 ])
                             })

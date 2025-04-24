@@ -780,7 +780,11 @@ fn check_bp_arguments(state: &mut VisitorState, args: &Vec<Path>) {
         arg_names.extend(path.names.clone());
     }
     for attribute_sym in state.ast.all_attributes() {
-        let attribute = state.ast.get_attribute(attribute_sym.offset()).unwrap();
+        let attribute = state
+            .ast
+            .get_attribute(attribute_sym.offset())
+            .unwrap()
+            .clone();
         if arg_names.contains(&attribute.name.name)
             && state.ast.get_bp_event(attribute_sym).is_none()
         {
@@ -791,6 +795,43 @@ fn check_bp_arguments(state: &mut VisitorState, args: &Vec<Path>) {
                 weight: 30,
                 msg: "Name is used as an argument to a bp aggregate function but is no BEvent here"
                     .into(),
+                error_type: ErrorType::Any,
+            });
+        }
+        let maybe_optional = state
+            .ast
+            .bp_events_optional
+            .iter()
+            .find(|content| content.0 == attribute_sym);
+        if maybe_optional.is_some() {
+            let locations = vec![
+                lsp_range(attribute.name.clone().span, state.source()).unwrap(),
+                lsp_range(
+                    state
+                        .ast
+                        .get_attribute(maybe_optional.unwrap().1.offset())
+                        .unwrap()
+                        .name
+                        .clone()
+                        .span,
+                    state.source(),
+                )
+                .unwrap(),
+            ];
+            for location in locations {
+                state.push_err_raw(ErrorInfo {
+                    location: location,
+                    severity: DiagnosticSeverity::WARNING,
+                    weight: 30,
+                    msg: "Event is argument to a bp aggregate function but is defined optional here. Correct constraint resolution may not be guaranteed.".into(),
+                    error_type: ErrorType::Any,
+                });
+            }
+            state.push_err_raw(ErrorInfo {
+                location: node_range(state.node(), state.source()),
+                severity: DiagnosticSeverity::WARNING,
+                weight: 30,
+                msg: format!("Some occurences of {} are defined as optional. Correct constraint resolution may not be guaranteed.", attribute.name.name),
                 error_type: ErrorType::Any,
             });
         }
@@ -1120,7 +1161,8 @@ fn opt_value(state: &mut VisitorState) -> Value {
     }
 }
 
-fn check_event_attributes(state: &mut VisitorState, attribute: Symbol) {
+fn check_event_attributes(state: &mut VisitorState, attribute: Symbol) -> Option<Symbol> {
+    let mut maybe_optional: Option<Symbol> = None;
     let boolean_names: Vec<Ustr> = vec![
         "requested".into(),
         "blocked".into(),
@@ -1132,7 +1174,12 @@ fn check_event_attributes(state: &mut VisitorState, attribute: Symbol) {
         .children(attribute)
         .filter_map(|child| {
             let child_attr = state.ast.get_attribute(child.offset()).unwrap();
-            if boolean_names.contains(&child_attr.name.name)
+            if child_attr.name.name == "optional"
+                && matches!(child_attr.value.value, Value::Bool(true))
+            {
+                maybe_optional = Some(child);
+                None
+            } else if boolean_names.contains(&child_attr.name.name)
                 && !match child_attr.value.value {
                     Value::Bool(_) => true,
                     _ => false,
@@ -1154,8 +1201,18 @@ fn check_event_attributes(state: &mut VisitorState, attribute: Symbol) {
     for (child, error_type) in errors {
         let mut msg = String::from("");
         match error_type {
-            "boolean" => msg = format!("If part of a BEvent, '{}' is required to be boolean", child.name.name),
-            "number" => msg = format!("If part of a BEvent, '{}' is required to be a number", child.name.name),
+            "boolean" => {
+                msg = format!(
+                    "If part of a BEvent, '{}' is required to be boolean",
+                    child.name.name
+                )
+            }
+            "number" => {
+                msg = format!(
+                    "If part of a BEvent, '{}' is required to be a number",
+                    child.name.name
+                )
+            }
             _ => {}
         }
         state.push_err_raw(ErrorInfo {
@@ -1166,6 +1223,7 @@ fn check_event_attributes(state: &mut VisitorState, attribute: Symbol) {
             error_type: ErrorType::Any,
         });
     }
+    maybe_optional
 }
 fn is_bp_event(state: &mut VisitorState, attribute: Symbol) -> bool {
     let attr = state.ast.get_attribute(attribute.offset()).unwrap();
@@ -1219,7 +1277,13 @@ fn check_bp_event(state: &mut VisitorState, attribute: Symbol, parent: Symbol) {
             error_type: ErrorType::Any,
         });
     }
-    check_event_attributes(state, attribute);
+    let maybe_optional = check_event_attributes(state, attribute);
+    if maybe_optional.is_some() {
+        state
+            .ast
+            .bp_events_optional
+            .push((attribute, maybe_optional.unwrap()))
+    };
 }
 
 fn visit_attribute_value(state: &mut VisitorState, parent: Symbol, duplicate: &bool) {
