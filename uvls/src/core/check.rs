@@ -392,7 +392,11 @@ impl<'a> ErrorsAcc<'a> {
     pub fn has_error(&self, file: FileID) -> bool {
         self.errors
             .get(&file)
-            .map(|u| !u.is_empty())
+            .map(|u| {
+                u.iter()
+                    .find(|err| matches!(err.severity, DiagnosticSeverity::ERROR))
+                    .is_some()
+            })
             .unwrap_or(false)
     }
     pub fn sym<S: Into<String>>(&mut self, sym: Symbol, file: FileID, weight: u32, s: S) {
