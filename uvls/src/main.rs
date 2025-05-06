@@ -41,6 +41,8 @@ use ide::actions;
 use log::{error, info};
 use percent_encoding::percent_decode_str;
 use serde::Serialize;
+use ustr::Ustr;
+use std::collections::HashMap as StdHashMap;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -481,9 +483,54 @@ impl LanguageServer for Backend {
                 if !root_graph.contains_id(root_fileid) {
                     return Ok(None);
                 }
+                let ast_document = root_graph.file(root_fileid);
+                let config: HashMap<ModuleSymbol, ConfigValue> = if params.arguments.len() > 2 {
+                    let maybe_env_feature = ast_document
+                        .all_features()
+                        .find(|f| {
+                            let feature = ast_document.get_feature(f.offset()).unwrap();
+                            feature.name.name == "Env" && ast_document
+                                .direct_children(*f)
+                                .find(|child| {
+                                    let attr = ast_document.get_attribute(child.offset()).unwrap();
+                                    attr.name.name == "type" && match &attr.value.value {
+                                        Value::String(value) => value == "Env",
+                                        _ => false,
+                                    }
+                                })
+                                .is_some()
+                        });
+                    if maybe_env_feature.is_some() {
+                        let env_values: StdHashMap<String, Symbol> = ast_document
+                            .direct_children(maybe_env_feature.unwrap())
+                            .filter_map(|child_sym| {
+                                let child = ast_document.get_attribute(child_sym.offset()).unwrap();
+                                if child.name.name == "type" {
+                                    None
+                                } else {
+                                    Some((child.name.name.to_string(), child_sym))
+                                }
+                            })
+                            .collect();
+                        let raw_configs: StdHashMap<&str, ConfigValue> = serde_json::from_value(params.arguments[2].clone()).unwrap();
+                        raw_configs
+                            .iter()
+                            .filter_map(|(key, value)| {
+                                let maybe_sym = env_values.get(&key.to_string());
+                                if maybe_sym.is_some() {
+                                    Some((ModuleSymbol {instance: InstanceID(0), sym: *maybe_sym.unwrap()}, value.clone()))
+                                } else { None }     
+                            })
+                            .collect::<HashMap<ModuleSymbol, ConfigValue>>()
+                    } else {HashMap::new()}
+                } else {
+                    HashMap::new()
+                };
                 let module = Module::new(root_fileid, root_graph.fs(), &root_graph.cache().ast);
-
-                let smt_module = uvl2smt(&module, &HashMap::new());
+                // let c = HashMap::from([(
+                //     ModuleSymbol {instance: InstanceID(0), sym: Symbol::Attribute(22)}, ConfigValue::Number(100.0)
+                // )]);
+                let smt_module = uvl2smt(&module, &config);
 
                 let solver = SmtSolver::new(
                     smt_module.to_source(&module),
