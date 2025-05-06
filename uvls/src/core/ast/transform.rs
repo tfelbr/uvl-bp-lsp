@@ -1290,13 +1290,6 @@ fn visit_attribute_value(state: &mut VisitorState, parent: Symbol, duplicate: &b
     state.goto_field("name");
     let name = opt_name(state).unwrap();
     let sym = Symbol::Attribute(state.ast.attributes.len());
-    // state.push_err_raw(ErrorInfo {
-    //     location: lsp_range(name.clone().span, state.source()).unwrap(),
-    //     severity: DiagnosticSeverity::ERROR,
-    //     weight: 30,
-    //     msg: sym.offset().to_string(),
-    //     error_type: ErrorType::Any,
-    // });
     state.push_child(parent, sym);
     state.goto_field("value");
     let value = opt_value(state);
