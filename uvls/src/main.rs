@@ -41,7 +41,6 @@ use ide::actions;
 use log::{error, info};
 use percent_encoding::percent_decode_str;
 use serde::Serialize;
-use ustr::Ustr;
 use std::collections::HashMap as StdHashMap;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -512,11 +511,11 @@ impl LanguageServer for Backend {
                                 }
                             })
                             .collect();
-                        let raw_configs: StdHashMap<&str, ConfigValue> = serde_json::from_value(params.arguments[2].clone()).unwrap();
+                        let raw_configs: StdHashMap<String, ConfigValue> = serde_json::from_value(params.arguments[2].clone()).unwrap();
                         raw_configs
                             .iter()
                             .filter_map(|(key, value)| {
-                                let maybe_sym = env_values.get(&key.to_string());
+                                let maybe_sym = env_values.get(key);
                                 if maybe_sym.is_some() {
                                     Some((ModuleSymbol {instance: InstanceID(0), sym: *maybe_sym.unwrap()}, value.clone()))
                                 } else { None }     
