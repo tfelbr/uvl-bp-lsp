@@ -688,4 +688,7 @@ impl AstDocument {
     pub fn new(source: Rope, tree: Tree, uri: Url, timestamp: Instant) -> Self {
         transform::visit_root(source, tree, uri, timestamp)
     }
+    pub fn all_bp_event_names(&self) -> HashSet<Ustr> {
+        self.ast.bp_event_names.clone()
+    }
 }

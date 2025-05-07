@@ -215,6 +215,7 @@ pub enum UnaryEventOP {
     Requested,
     Blocked,
     WaitedFor,
+    Enforced,
 }
 
 #[derive(Clone, Debug)]

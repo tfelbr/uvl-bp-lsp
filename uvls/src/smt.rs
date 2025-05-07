@@ -41,6 +41,7 @@ use tokio_util::sync::CancellationToken;
 use tower_lsp::lsp_types::*;
 mod parse;
 pub mod smt_lib;
+pub mod bp_util;
 pub use smt_lib::*;
 
 /// Z3 process interface(over stdio)

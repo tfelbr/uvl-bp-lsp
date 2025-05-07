@@ -1,4 +1,6 @@
 use crate::core::*;
+use crate::smt::bp_util::*;
+use dioxus::core::exports::bumpalo::collections::vec;
 use hashbrown::HashMap;
 use indexmap::IndexSet;
 use lazy_static::lazy_static;
@@ -363,7 +365,7 @@ impl SMTModule {
         }
     }
 }
-struct SMTBuilder<'a> {
+pub struct SMTBuilder<'a> {
     /// Each variable is encoded as v{n} where n is an index into sym2var using an IndexSet
     /// enables us to lookup a variable both by index and ModuleSymbol
     sym2var: IndexSet<ModuleSymbol>,
@@ -372,7 +374,7 @@ struct SMTBuilder<'a> {
 }
 impl<'a> SMTBuilder<'a> {
     //Variable to index
-    fn var(&self, ms: ModuleSymbol) -> Expr {
+    pub fn var(&self, ms: ModuleSymbol) -> Expr {
         Expr::Var(
             self.sym2var
                 .get_index_of(&self.module.resolve_value(ms))
@@ -853,43 +855,7 @@ fn translate_expr(decl: &ast::ExprDecl, m: InstanceID, builder: &mut SMTBuilder)
         ),
     }
 }
-fn make_max_expr(values: &Vec<Expr>) -> Option<Expr> {
-    match values.len() {
-        0 => None,
-        1 => Some(values[0].clone()),
-        _ => {
-            let mut current_max = values[0].clone();
-            for i in 1..values.len() {
-                let compatant = values[i].clone();
-                current_max = Expr::Ite(
-                    Box::new(Expr::Greater(vec![current_max.clone(), compatant.clone()])),
-                    Box::new(current_max),
-                    Box::new(compatant),
-                )
-            }
-            Some(current_max)
-        }
-    }
-}
-fn to_bool_if_equal(comparison: Expr, values: &Vec<Expr>) -> Vec<Expr> {
-    values
-        .iter()
-        .map(|value| Expr::Equal(vec![comparison.clone(), value.clone()]))
-        .collect::<Vec<Expr>>()
-}
-fn make_filter_expr(predicates: Vec<Expr>, fallback: Expr, values: &Vec<Expr>) -> Vec<Expr> {
-    values
-        .iter()
-        .enumerate()
-        .map(|(index, value)| {
-            Expr::Ite(
-                Box::new(predicates[index].clone()),
-                Box::new(value.clone()),
-                Box::new(fallback.clone()),
-            )
-        })
-        .collect::<Vec<Expr>>()
-}
+
 fn translate_bp_constraint(
     decl: &ast::BPExprDecl,
     m: InstanceID,
@@ -897,33 +863,20 @@ fn translate_bp_constraint(
 ) -> Expr {
     match &decl.content {
         ast::BPExpr::UnaryEventAggregate { op, query } => {
-            let mut all_requested: Vec<Expr> = Vec::new();
-            let mut all_blocked: Vec<Expr> = Vec::new();
-            let mut all_waited_for: Vec<Expr> = Vec::new();
-
-            let base_slice = query.names.as_slice();
-            let requested = [base_slice, &[Ustr::from("requested")]].concat();
-            let blocked = [base_slice, &[Ustr::from("blocked")]].concat();
-            let waited_for = [base_slice, &[Ustr::from("waited_for")]].concat();
-
             let tgt = m.sym(Symbol::Root);
             let tgt_file = builder.module.file(tgt.instance);
-            tgt_file.visit_attributes(tgt.sym, |_, attrib, prefix| {
-                if prefix == requested.as_slice() && tgt_file.type_of(attrib).unwrap() == Type::Bool {
-                    all_requested.push(builder.var(tgt.instance.sym(attrib)));
-                } else if prefix == blocked.as_slice()
-                    && tgt_file.type_of(attrib).unwrap() == Type::Bool
-                {
-                    all_blocked.push(builder.var(tgt.instance.sym(attrib)));
-                } else if prefix == waited_for.as_slice()
-                    && tgt_file.type_of(attrib).unwrap() == Type::Bool
-                {
-                    all_waited_for.push(builder.var(tgt.instance.sym(attrib)));
-                }
-            });
-
+            let base_slice = query.names.as_slice();
             match op {
                 ast::UnaryEventOP::Requested => {
+                    let mut all_requested: Vec<Expr> = Vec::new();
+                    let requested = [base_slice, &[Ustr::from("requested")]].concat();
+                    tgt_file.visit_attributes(tgt.sym, |_, attrib, prefix| {
+                        if prefix == requested.as_slice()
+                            && tgt_file.type_of(attrib).unwrap() == Type::Bool
+                        {
+                            all_requested.push(builder.var(tgt.instance.sym(attrib)));
+                        }
+                    });
                     if all_requested.is_empty() {
                         Expr::Bool(false)
                     } else {
@@ -931,6 +884,15 @@ fn translate_bp_constraint(
                     }
                 }
                 ast::UnaryEventOP::Blocked => {
+                    let mut all_blocked: Vec<Expr> = Vec::new();
+                    let blocked = [base_slice, &[Ustr::from("blocked")]].concat();
+                    tgt_file.visit_attributes(tgt.sym, |_, attrib, prefix| {
+                        if prefix == blocked.as_slice()
+                            && tgt_file.type_of(attrib).unwrap() == Type::Bool
+                        {
+                            all_blocked.push(builder.var(tgt.instance.sym(attrib)));
+                        }
+                    });
                     if all_blocked.is_empty() {
                         Expr::Bool(false)
                     } else {
@@ -938,96 +900,84 @@ fn translate_bp_constraint(
                     }
                 }
                 ast::UnaryEventOP::WaitedFor => {
+                    let mut all_waited_for: Vec<Expr> = Vec::new();
+                    let waited_for = [base_slice, &[Ustr::from("waited_for")]].concat();
+                    tgt_file.visit_attributes(tgt.sym, |_, attrib, prefix| {
+                        if prefix == waited_for.as_slice()
+                            && tgt_file.type_of(attrib).unwrap() == Type::Bool
+                        {
+                            all_waited_for.push(builder.var(tgt.instance.sym(attrib)));
+                        }
+                    });
                     if all_waited_for.is_empty() {
                         Expr::Bool(false)
                     } else {
                         Expr::AtLeast(1, all_waited_for)
                     }
                 }
+                ast::UnaryEventOP::Enforced => {
+                    let all_events = find_all_of(
+                        tgt_file
+                            .all_bp_event_names()
+                            .iter()
+                            .map(|name| name.clone())
+                            .collect::<Vec<Ustr>>(),
+                        tgt,
+                        tgt_file,
+                        builder,
+                    );
+                    let important_name = query.names[0];
+                    let important_event = all_events.get(&important_name).unwrap();
+                    let important_requested = at_least_one_true(&important_event.all_requested);
+                    let important_blocked = at_least_one_true(&important_event.all_blocked);
+                    let important_highest_priority = highest_priority_expr(important_event);
+
+                    let mut total_selectable: Vec<Expr> = vec![];
+                    let mut highest_priorities: Vec<Expr> = vec![];
+                    for (name, current) in all_events {
+                        if name != important_name {
+                            let is_requested = at_least_one_true(&current.all_requested);
+                            let is_blocked = at_least_one_true(&current.all_blocked);
+                            let highest_priority = highest_priority_expr(&current);
+                            total_selectable.push(Expr::And(vec![
+                                is_requested,
+                                Expr::Not(Box::new(is_blocked)),
+                            ]));
+                            highest_priorities.push(highest_priority);
+                        }
+                    }
+                    Expr::And(vec![
+                        Expr::And(vec![
+                            important_requested,
+                            Expr::Not(Box::new(important_blocked))
+                        ]),
+                        Expr::Or(vec![
+                            Expr::AtMost(0, total_selectable),
+                            Expr::Greater(vec![important_highest_priority, make_max_expr(&highest_priorities).unwrap()])
+                        ]),
+                    ])
+                }
             }
         }
         ast::BPExpr::ManyEventAggregate { op, queries } => {
-            let mut all_requested: HashMap<i32, Vec<Expr>> = HashMap::new();
-            let mut all_blocked: HashMap<i32, Vec<Expr>> = HashMap::new();
-            let mut all_priorities: HashMap<i32, Vec<Expr>> = HashMap::new();
-            let mut index = 0;
-
             let tgt = m.sym(Symbol::Root);
             let tgt_file = builder.module.file(tgt.instance);
-
-            for query in queries {
-                let base_slice = query.names.as_slice();
-
-                all_requested.insert(index, Vec::new());
-                all_blocked.insert(index, Vec::new());
-                all_priorities.insert(index, Vec::new());
-
-                tgt_file.visit_attributes(tgt.sym, |_, attrib, prefix| {
-                    if prefix == base_slice {
-                        let attribute = tgt_file.get_attribute(attrib.offset()).unwrap();
-                        let mut requested = Expr::Bool(false);
-                        let mut blocked = Expr::Bool(false);
-                        let mut priority = Expr::Bool(false);
-                        match attribute.value.value {
-                            Value::Attributes => {
-                                tgt_file.direct_children(attrib).for_each(|sub_attr_sym| {
-                                    let sub_attr =
-                                        tgt_file.get_attribute(sub_attr_sym.offset()).unwrap();
-                                    match sub_attr.value.value {
-                                        Value::Bool(_) => {
-                                            if sub_attr.name.name == "requested" {
-                                                requested = builder.var(tgt.instance.sym(sub_attr_sym));
-                                            } else if sub_attr.name.name == "blocked" {
-                                                blocked = builder.var(tgt.instance.sym(sub_attr_sym));
-                                            }
-                                        },
-                                        Value::Number(_) => {
-                                            if sub_attr.name.name == "priority" {
-                                                priority = builder.var(tgt.instance.sym(sub_attr_sym));
-                                            }
-                                        }
-                                        _ => {}
-                                    }
-                                })
-                            }
-                            _ => {}
-                        }
-                        all_requested.get_mut(&index).unwrap().push(requested);
-                        all_blocked.get_mut(&index).unwrap().push(blocked);
-                        all_priorities.get_mut(&index).unwrap().push(priority);
-                    }
-                });
-                index += 1;
-            }
-            let mut total_requested: Vec<Expr> = Vec::new();
+            let all_events = find_all_of(
+                queries
+                    .iter()
+                    .map(|path| path.names[0])
+                    .collect::<Vec<Ustr>>(),
+                tgt,
+                tgt_file,
+                builder,
+            );
+            let mut total_selectable: Vec<Expr> = Vec::new();
             let mut highest_priorities: Vec<Expr> = Vec::new();
-            for current in 0..index {
-                let is_requested = match all_requested[&current].len() {
-                    0 => Expr::Bool(false),
-                    _ => Expr::AtLeast(1, all_requested[&current].clone()),
-                };
-                let is_blocked = match all_blocked[&current].len() {
-                    0 => Expr::Bool(false),
-                    _ => Expr::AtLeast(1, all_blocked[&current].clone())
-                };
-                let highest_priority = match all_priorities[&current].len() {
-                    0 => Expr::Real(0.0),
-                    _ => make_max_expr(&make_filter_expr(
-                        all_requested[&current]
-                            .iter()
-                            .map(|item| {
-                                Expr::And(vec![
-                                    item.clone(),
-                                    Expr::Not(Box::new(is_blocked.clone())),
-                                ])
-                            })
-                            .collect::<Vec<Expr>>(),
-                        Expr::Real(0.0),
-                        &all_priorities[&current],
-                    ))
-                    .unwrap(),
-                };
-                total_requested.push(Expr::And(vec![
+            for (_, current) in all_events {
+                let is_requested = at_least_one_true(&current.all_requested);
+                let is_blocked = at_least_one_true(&current.all_blocked);
+                let highest_priority = highest_priority_expr(&current);
+                total_selectable.push(Expr::And(vec![
                     is_requested,
                     Expr::Not(Box::new(is_blocked)),
                 ]));
@@ -1035,10 +985,10 @@ fn translate_bp_constraint(
             }
             match op {
                 ast::ManyEventOP::Conflicting => Expr::Or(vec![
-                    Expr::AtMost(1, total_requested),
+                    Expr::AtMost(1, total_selectable),
                     Expr::AtMost(
                         1,
-                        to_bool_if_equal(
+                        is_equal(
                             make_max_expr(&highest_priorities).unwrap(),
                             &highest_priorities,
                         ),
