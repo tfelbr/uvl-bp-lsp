@@ -1,6 +1,5 @@
 use crate::core::*;
 use crate::smt::bp_util::*;
-use dioxus::core::exports::bumpalo::collections::vec;
 use hashbrown::HashMap;
 use indexmap::IndexSet;
 use lazy_static::lazy_static;
