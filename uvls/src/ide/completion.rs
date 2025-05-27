@@ -999,7 +999,7 @@ fn add_function_keywords(query: &str, top: &mut TopN<CompletionOpt>, w: f32) {
             "blocked($1) ".into(),
             "waited_for($1) ".into(),
             "conflicting($1) ".into(),
-            "enforced($1) ".into(),
+            "selected($1) ".into(),
         ],
     );
 }

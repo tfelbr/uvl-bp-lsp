@@ -571,7 +571,7 @@ fn opt_unary_bp_event_op(state: &mut VisitorState) -> Option<UnaryEventOP> {
         "requested" => Some(UnaryEventOP::Requested),
         "blocked" => Some(UnaryEventOP::Blocked),
         "waited_for" => Some(UnaryEventOP::WaitedFor),
-        "enforced" => Some(UnaryEventOP::Enforced),
+        "selected" => Some(UnaryEventOP::Selected),
         _ => {
             state.push_error(30, "unknown event aggregate function");
             None
@@ -1068,7 +1068,7 @@ fn opt_constraint(state: &mut VisitorState) -> Option<ConstraintDecl> {
             })
         }
         "function" => match state.slice(state.child_by_name("op")?).borrow() {
-            "requested" | "blocked" | "waited_for" | "enforced" => {
+            "requested" | "blocked" | "waited_for" | "selected" => {
                 check_langlvls(
                     state,
                     LanguageLevel::Arithmetic(vec![LanguageLevelArithmetic::Aggregate]),

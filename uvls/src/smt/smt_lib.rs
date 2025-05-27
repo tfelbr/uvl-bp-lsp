@@ -914,7 +914,7 @@ fn translate_bp_constraint(
                         Expr::AtLeast(1, all_waited_for)
                     }
                 }
-                ast::UnaryEventOP::Enforced => {
+                ast::UnaryEventOP::Selected => {
                     let all_events = find_all_of(
                         tgt_file
                             .all_bp_event_names()
@@ -948,11 +948,14 @@ fn translate_bp_constraint(
                     Expr::And(vec![
                         Expr::And(vec![
                             important_requested,
-                            Expr::Not(Box::new(important_blocked))
+                            Expr::Not(Box::new(important_blocked)),
                         ]),
                         Expr::Or(vec![
                             Expr::AtMost(0, total_selectable),
-                            Expr::Greater(vec![important_highest_priority, make_max_expr(&highest_priorities).unwrap()])
+                            Expr::Greater(vec![
+                                important_highest_priority,
+                                make_max_expr(&highest_priorities).unwrap(),
+                            ]),
                         ]),
                     ])
                 }

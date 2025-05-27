@@ -9,7 +9,7 @@ features
     EnvPath {type 'EnvPath', foo '~/foo'}
 
 constraints
-    enforced(Event1) 
+    selected(Event1) 
     conflicting(Event1, Event2, Event3) 
     // requested(Event1) => !blocked(Event1)
     // waited_for(Event2)
