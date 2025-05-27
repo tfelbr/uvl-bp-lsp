@@ -527,7 +527,7 @@ fn compute_constraint_completion(
                         .get_line(line)
                         .unwrap()
                         .as_str()
-                        .unwrap()
+                        .unwrap_or("")
                         .contains("constraints")
                 })
                 .contains(&true)
