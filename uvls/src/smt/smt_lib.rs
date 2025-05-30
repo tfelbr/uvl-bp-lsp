@@ -876,11 +876,7 @@ fn translate_bp_constraint(
                             all_requested.push(builder.var(tgt.instance.sym(attrib)));
                         }
                     });
-                    if all_requested.is_empty() {
-                        Expr::Bool(false)
-                    } else {
-                        Expr::AtLeast(1, all_requested)
-                    }
+                    at_least_one_true(&all_requested)
                 }
                 ast::UnaryEventOP::Blocked => {
                     let mut all_blocked: Vec<Expr> = Vec::new();
@@ -892,11 +888,7 @@ fn translate_bp_constraint(
                             all_blocked.push(builder.var(tgt.instance.sym(attrib)));
                         }
                     });
-                    if all_blocked.is_empty() {
-                        Expr::Bool(false)
-                    } else {
-                        Expr::AtLeast(1, all_blocked)
-                    }
+                    at_least_one_true(&all_blocked)
                 }
                 ast::UnaryEventOP::WaitedFor => {
                     let mut all_waited_for: Vec<Expr> = Vec::new();
@@ -908,11 +900,7 @@ fn translate_bp_constraint(
                             all_waited_for.push(builder.var(tgt.instance.sym(attrib)));
                         }
                     });
-                    if all_waited_for.is_empty() {
-                        Expr::Bool(false)
-                    } else {
-                        Expr::AtLeast(1, all_waited_for)
-                    }
+                    at_least_one_true(&all_waited_for)
                 }
                 ast::UnaryEventOP::Selected => {
                     let all_events = find_all_of(
@@ -925,46 +913,44 @@ fn translate_bp_constraint(
                         tgt_file,
                         builder,
                     );
-                    let important_name = query.names[0];
-                    let important_event = all_events.get(&important_name).unwrap();
-                    let important_requested = at_least_one_true(&important_event.all_requested);
-                    let important_blocked = at_least_one_true(&important_event.all_blocked);
-                    let important_highest_priority = highest_priority_expr(important_event);
+                    let wanted_name = query.names[0];
+                    let wanted_event = all_events.get(&wanted_name).unwrap();
+                    let wanted_requested = at_least_one_true(&wanted_event.all_requested);
+                    let wanted_blocked = at_least_one_true(&wanted_event.all_blocked);
+                    let wanted_highest_priority = highest_priority_expr(wanted_event);
 
-                    let mut total_selectable: Vec<Expr> = vec![];
-                    let mut highest_priorities: Vec<Expr> = vec![];
+                    let mut not_wanted_selectable: Vec<Expr> = vec![];
+                    let mut not_wanted_highest_priorities: Vec<Expr> = vec![];
                     for (name, current) in all_events {
-                        if name != important_name {
+                        if name != wanted_name {
                             let is_requested = at_least_one_true(&current.all_requested);
                             let is_blocked = at_least_one_true(&current.all_blocked);
                             let highest_priority = highest_priority_expr(&current);
-                            total_selectable.push(Expr::And(vec![
+                            not_wanted_selectable.push(Expr::And(vec![
                                 is_requested,
                                 Expr::Not(Box::new(is_blocked)),
                             ]));
-                            highest_priorities.push(highest_priority);
+                            not_wanted_highest_priorities.push(highest_priority);
                         }
                     }
                     Expr::And(vec![
                         Expr::And(vec![
-                            important_requested,
-                            Expr::Not(Box::new(important_blocked)),
+                            wanted_requested,
+                            Expr::Not(Box::new(wanted_blocked)),
                         ]),
                         Expr::Or(vec![
-                            Expr::AtMost(0, total_selectable),
+                            Expr::AtMost(0, not_wanted_selectable),
                             Expr::Greater(vec![
-                                important_highest_priority,
-                                make_max_expr(&highest_priorities).unwrap(),
-                            ]),
-                        ]),
-                    ])
+                                wanted_highest_priority,
+                                make_max_expr(&not_wanted_highest_priorities).unwrap(),
+                    ])])])     
                 }
             }
         }
         ast::BPExpr::ManyEventAggregate { op, queries } => {
             let tgt = m.sym(Symbol::Root);
             let tgt_file = builder.module.file(tgt.instance);
-            let all_events = find_all_of(
+            let all_conflicting_events = find_all_of(
                 queries
                     .iter()
                     .map(|path| path.names[0])
@@ -975,7 +961,7 @@ fn translate_bp_constraint(
             );
             let mut total_selectable: Vec<Expr> = Vec::new();
             let mut highest_priorities: Vec<Expr> = Vec::new();
-            for (_, current) in all_events {
+            for (_, current) in all_conflicting_events {
                 let is_requested = at_least_one_true(&current.all_requested);
                 let is_blocked = at_least_one_true(&current.all_blocked);
                 let highest_priority = highest_priority_expr(&current);
@@ -993,10 +979,8 @@ fn translate_bp_constraint(
                         is_equal(
                             make_max_expr(&highest_priorities).unwrap(),
                             &highest_priorities,
-                        ),
-                    ),
-                ]),
-            }
-        }
-    }
-}
+                ))])
+}}}}
+        
+    
+
