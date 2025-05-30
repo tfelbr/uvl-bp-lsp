@@ -934,16 +934,15 @@ fn translate_bp_constraint(
                         }
                     }
                     Expr::And(vec![
-                        Expr::And(vec![
-                            wanted_requested,
-                            Expr::Not(Box::new(wanted_blocked)),
-                        ]),
+                        Expr::And(vec![wanted_requested, Expr::Not(Box::new(wanted_blocked))]),
                         Expr::Or(vec![
                             Expr::AtMost(0, not_wanted_selectable),
                             Expr::Greater(vec![
                                 wanted_highest_priority,
                                 make_max_expr(&not_wanted_highest_priorities).unwrap(),
-                    ])])])     
+                            ]),
+                        ]),
+                    ])
                 }
             }
         }
@@ -979,8 +978,10 @@ fn translate_bp_constraint(
                         is_equal(
                             make_max_expr(&highest_priorities).unwrap(),
                             &highest_priorities,
-                ))])
-}}}}
-        
-    
-
+                        ),
+                    ),
+                ]),
+            }
+        }
+    }
+}
