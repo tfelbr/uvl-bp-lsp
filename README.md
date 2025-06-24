@@ -1,5 +1,7 @@
-# UVLS - Universal Variability Language Server
+# UVLS-BP - Universal Variability Language Server with Behavioral Programming Extensions
 [UVL](https://github.com/Universal-Variability-Language) language server based on [tree-sitter](https://github.com/tree-sitter/tree-sitter).
+
+This fork extends the UVL language server with support for behavioral programming.
 
 ## Getting started
 
@@ -7,20 +9,21 @@
 Basic Documentation for the Codebase: [Docs](https://universal-variability-language.github.io/uvl-lsp/uvls/)
 ### Build
 - Requirements
-    - Rust 1.65+
+    - Rust 1.85+
     - Git
 ```
-git clone https://codeberg.org/caradhras/uvls.git
-cd  uvls
-cargo build --release
+carho build --release
 ```
+The resulting binary can be found under ``target/release/uvls``.
 
 ### VSCode
-There are prebuilt binaries for most common platforms so just installing the extension is enough.
+To install the extension, enter the following command in VSCode:
 ```
 ext install caradhras.uvls-code
 ```
-### NeoVim
+Depending on which build you use, this command might not work. In this case, download the extension manually or build it from this repo.
+
+To use the compiled binary, enter the extension's settings and go to the ``User`` tab. Set the path to the UVLS executable obtained in the previous step. Uncheck the ``Auto Update`` box.
 
 ## Features
 - Completions
