@@ -9,10 +9,10 @@ This fork extends the UVL language server with support for behavioral programmin
 Basic Documentation for the Codebase: [Docs](https://universal-variability-language.github.io/uvl-lsp/uvls/)
 ### Build
 - Requirements
-    - Rust 1.85+
+    - Rust 1.83+
     - Git
 ```
-carho build --release
+cargo build --release
 ```
 The resulting binary can be found under ``target/release/uvls``.
 
